@@ -22,14 +22,14 @@
   -->
 <!-- N.B. This is *not* meant to be a usable cache configuration -->
 <!-- This file supplies the internal configuration defaults per cache mode -->
-<infinispan xmlns="urn:infinispan:config:7.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:infinispan:config:7.0 http://infinispan.org/schemas/infinispan-config-7.0.xsd">
+<infinispan xmlns="urn:infinispan:config:8.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="urn:infinispan:config:8.0 http://infinispan.org/schemas/infinispan-config-8.0.xsd">
 
    <cache-container default-cache="default">
       <local-cache name="default">
          <locking acquire-timeout="15000" striping="false" concurrency-level="1000"/>
-         <store-as-binary keys="false" values="false"/>
          <eviction strategy="NONE"/>
          <expiration interval="-1"/>
+         <store-as-binary keys="false" values="false"/>
          <data-container key-equivalence="org.jboss.as.clustering.infinispan.equivalence.AnyServerEquivalence"
                          value-equivalence="org.jboss.as.clustering.infinispan.equivalence.AnyServerEquivalence" />
       </local-cache>

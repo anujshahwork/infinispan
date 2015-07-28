@@ -28,7 +28,7 @@ import static org.infinispan.test.TestingUtil.existsDomains;
  * @author Galder Zamarreño
  * @since 4.0
  */
-@Test(groups = "functional", testName = "jmx.JmxStatsFunctionalTest")
+@Test(groups = {"functional", "smoke"}, testName = "jmx.JmxStatsFunctionalTest")
 public class JmxStatsFunctionalTest extends AbstractInfinispanTest {
 
    public static final String JMX_DOMAIN = JmxStatsFunctionalTest.class.getSimpleName();
@@ -311,7 +311,7 @@ public class JmxStatsFunctionalTest extends AbstractInfinispanTest {
       Properties propsGlobal = (Properties) mBeanServer.getAttribute(getCacheManagerObjectName(jmxDomain), "globalConfigurationAsProperties");
       assert "true".equals(props1.getProperty("storeAsBinary.enabled"));
       assert "false".equals(props2.getProperty("storeAsBinary.enabled"));
-      System.out.println("propsGlobal="+propsGlobal);
+      log.tracef("propsGlobal=%s", propsGlobal);
       assert "TESTVALUE1".equals(propsGlobal.getProperty("transport.siteId"));
       assert "TESTVALUE2".equals(propsGlobal.getProperty("transport.rackId"));
       assert "TESTVALUE3".equals(propsGlobal.getProperty("transport.machineId"));

@@ -2,13 +2,15 @@ package org.infinispan.util;
 
 import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.annotations.Stop;
+import org.infinispan.partitionhandling.AvailabilityMode;
+import org.infinispan.partitionhandling.impl.PartitionHandlingManager;
+import org.infinispan.remoting.transport.Address;
 import org.infinispan.topology.CacheJoinInfo;
 import org.infinispan.topology.CacheTopology;
 import org.infinispan.topology.CacheTopologyHandler;
 import org.infinispan.topology.LocalTopologyManager;
 import org.infinispan.topology.LocalTopologyManagerImpl;
-
-import java.util.Map;
+import org.infinispan.topology.ManagerStatusResponse;
 
 /**
  * Class to be extended to allow some control over the local topology manager when testing Infinispan.
@@ -27,8 +29,8 @@ public abstract class AbstractControlledLocalTopologyManager implements LocalTop
    }
 
    @Override
-   public final CacheTopology join(String cacheName, CacheJoinInfo joinInfo, CacheTopologyHandler stm) throws Exception {
-      return delegate.join(cacheName, joinInfo, stm);
+   public final CacheTopology join(String cacheName, CacheJoinInfo joinInfo, CacheTopologyHandler stm, PartitionHandlingManager phm) throws Exception {
+      return delegate.join(cacheName, joinInfo, stm, phm);
    }
 
    @Override
@@ -37,31 +39,63 @@ public abstract class AbstractControlledLocalTopologyManager implements LocalTop
    }
 
    @Override
-   public final void confirmRebalance(String cacheName, int topologyId, Throwable throwable) {
+   public final void confirmRebalance(String cacheName, int topologyId, int rebalanceId, Throwable throwable) {
       beforeConfirmRebalance(cacheName, topologyId, throwable);
-      delegate.confirmRebalance(cacheName, topologyId, throwable);
+      delegate.confirmRebalance(cacheName, topologyId, rebalanceId, throwable);
    }
 
    @Override
-   public final Map<String, Object[]> handleStatusRequest(int viewId) {
+   public final ManagerStatusResponse handleStatusRequest(int viewId) {
       return delegate.handleStatusRequest(viewId);
    }
 
    @Override
-   public final void handleConsistentHashUpdate(String cacheName, CacheTopology cacheTopology, int viewId) throws InterruptedException {
-      beforeHandleConsistentHashUpdate(cacheName, cacheTopology, viewId);
-      delegate.handleConsistentHashUpdate(cacheName, cacheTopology, viewId);
+   public final void handleTopologyUpdate(String cacheName, CacheTopology cacheTopology,
+         AvailabilityMode availabilityMode, int viewId, Address sender) throws InterruptedException {
+      beforeHandleTopologyUpdate(cacheName, cacheTopology, viewId);
+      delegate.handleTopologyUpdate(cacheName, cacheTopology, availabilityMode, viewId, sender);
    }
 
    @Override
-   public final void handleRebalance(String cacheName, CacheTopology cacheTopology, int viewId) throws InterruptedException {
+   public final void handleRebalance(String cacheName, CacheTopology cacheTopology, int viewId, Address sender)
+         throws InterruptedException {
       beforeHandleRebalance(cacheName, cacheTopology, viewId);
-      delegate.handleRebalance(cacheName, cacheTopology, viewId);
+      delegate.handleRebalance(cacheName, cacheTopology, viewId, sender);
    }
 
    @Override
    public final CacheTopology getCacheTopology(String cacheName) {
       return delegate.getCacheTopology(cacheName);
+   }
+
+   @Override
+   public void handleStableTopologyUpdate(String cacheName, CacheTopology cacheTopology, int viewId) {
+      delegate.handleStableTopologyUpdate(cacheName, cacheTopology, viewId);
+   }
+
+   @Override
+   public CacheTopology getStableCacheTopology(String cacheName) {
+      return delegate.getStableCacheTopology(cacheName);
+   }
+
+   @Override
+   public boolean isRebalancingEnabled() throws Exception {
+      return delegate.isRebalancingEnabled();
+   }
+
+   @Override
+   public void setRebalancingEnabled(boolean enabled) throws Exception {
+      delegate.setRebalancingEnabled(enabled);
+   }
+
+   @Override
+   public AvailabilityMode getCacheAvailability(String cacheName) {
+      return delegate.getCacheAvailability(cacheName);
+   }
+
+   @Override
+   public void setCacheAvailability(String cacheName, AvailabilityMode availabilityMode) throws Exception {
+      delegate.setCacheAvailability(cacheName, availabilityMode);
    }
 
    // Arbitrary value, only need to start after JGroupsTransport
@@ -80,7 +114,12 @@ public abstract class AbstractControlledLocalTopologyManager implements LocalTop
       }
    }
 
-   protected void beforeHandleConsistentHashUpdate(String cacheName, CacheTopology cacheTopology, int viewId) {
+   @Override
+   public boolean isTotalOrderCache(String cacheName) {
+      return delegate.isTotalOrderCache(cacheName);
+   }
+
+   protected void beforeHandleTopologyUpdate(String cacheName, CacheTopology cacheTopology, int viewId) {
       //no-op by default
    }
 

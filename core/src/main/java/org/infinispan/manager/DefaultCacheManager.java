@@ -1,26 +1,14 @@
 package org.infinispan.manager;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
-
 import org.infinispan.Cache;
+import org.infinispan.IllegalLifecycleStateException;
 import org.infinispan.Version;
 import org.infinispan.commands.RemoveCacheCommand;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.CacheException;
+import org.infinispan.commons.api.Lifecycle;
 import org.infinispan.commons.util.CollectionFactory;
-import org.infinispan.commons.util.FileLookup;
+import org.infinispan.commons.util.FileLookupFactory;
 import org.infinispan.commons.util.Immutables;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.configuration.cache.Configuration;
@@ -45,10 +33,11 @@ import org.infinispan.jmx.annotations.ManagedAttribute;
 import org.infinispan.jmx.annotations.ManagedOperation;
 import org.infinispan.jmx.annotations.Parameter;
 import org.infinispan.lifecycle.ComponentStatus;
-import org.infinispan.lifecycle.Lifecycle;
 import org.infinispan.notifications.cachemanagerlistener.CacheManagerNotifier;
 import org.infinispan.persistence.manager.PersistenceManager;
+import org.infinispan.registry.InternalCacheRegistry;
 import org.infinispan.registry.impl.ClusterRegistryImpl;
+import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.rpc.ResponseMode;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.remoting.transport.Transport;
@@ -57,8 +46,26 @@ import org.infinispan.security.AuthorizationPermission;
 import org.infinispan.security.impl.AuthorizationHelper;
 import org.infinispan.security.impl.PrincipalRoleMapperContextImpl;
 import org.infinispan.security.impl.SecureCacheImpl;
+import org.infinispan.stats.CacheContainerStats;
+import org.infinispan.stats.impl.CacheContainerStatsImpl;
+import org.infinispan.util.CyclicDependencyException;
+import org.infinispan.util.DependencyGraph;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map.Entry;
+import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * A <tt>CacheManager</tt> is the primary mechanism for retrieving a {@link Cache} instance, and is often used as a
@@ -88,7 +95,7 @@ import org.infinispan.util.logging.LogFactory;
  * within its scope are properly stopped as well.
  * <p/>
  * Sample usage:
- * <code>
+ * <pre><code>
  *    CacheManager manager = CacheManager.getInstance("my-config-file.xml");
  *    Cache&lt;String, Person&gt; entityCache = manager.getCache("myEntityCache");
  *    entityCache.put("aPerson", new Person());
@@ -97,7 +104,7 @@ import org.infinispan.util.logging.LogFactory;
  *    confBuilder.clustering().cacheMode(CacheMode.REPL_SYNC);
  *    manager.defineConfiguration("myReplicatedCache", confBuilder.build());
  *    Cache&lt;String, String&gt; replicatedCache = manager.getCache("myReplicatedCache");
- * </code>
+ * </code></pre>
  *
  * @author Manik Surtani
  * @author Galder Zamarreño
@@ -116,6 +123,8 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
    private final GlobalComponentRegistry globalComponentRegistry;
    private volatile boolean stopping;
    private final AuthorizationHelper authzHelper;
+   private final DependencyGraph<String> cacheDependencyGraph = new DependencyGraph<>();
+   private final CacheContainerStats stats;
 
    /**
     * Constructs and starts a default instance of the CacheManager, using configuration defaults.  See {@link org.infinispan.configuration.cache.Configuration Configuration}
@@ -204,6 +213,7 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
       this.defaultConfiguration = defaultConfiguration == null ? new ConfigurationBuilder().build() : defaultConfiguration;
       this.globalComponentRegistry = new GlobalComponentRegistry(this.globalConfiguration, this, caches.keySet());
       this.authzHelper = new AuthorizationHelper(this.globalConfiguration.security(), AuditContext.CACHEMANAGER, this.globalConfiguration.globalJmxStatistics().cacheManagerName());
+      this.stats = new CacheContainerStatsImpl(this);
       if (start)
          start();
    }
@@ -231,7 +241,7 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
     * @throws java.io.IOException if there is a problem with the configuration file.
     */
    public DefaultCacheManager(String configurationFile, boolean start) throws IOException {
-	  this(new FileLookup().lookupFileStrict(configurationFile, Thread.currentThread().getContextClassLoader()), start);
+	  this(FileLookupFactory.newInstance().lookupFileStrict(configurationFile, Thread.currentThread().getContextClassLoader()), start);
    }
 
    /**
@@ -271,15 +281,17 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
    public DefaultCacheManager(ConfigurationBuilderHolder holder, boolean start) {
       try {
          globalConfiguration = holder.getGlobalConfigurationBuilder().build();
-         defaultConfiguration = holder.getDefaultConfigurationBuilder().build();
+         defaultConfiguration = holder.getDefaultConfigurationBuilder().build(globalConfiguration);
 
          for (Entry<String, ConfigurationBuilder> entry : holder.getNamedConfigurationBuilders().entrySet()) {
-            org.infinispan.configuration.cache.Configuration c = entry.getValue().build();
+            ConfigurationBuilder builder = entry.getValue();
+            org.infinispan.configuration.cache.Configuration c = builder.build(globalConfiguration);
             configurationOverrides.put(entry.getKey(), c);
          }
 
          globalComponentRegistry = new GlobalComponentRegistry(globalConfiguration, this, caches.keySet());
          authzHelper = new AuthorizationHelper(globalConfiguration.security(), AuditContext.CACHEMANAGER, globalConfiguration.globalJmxStatistics().cacheManagerName());
+         stats = new CacheContainerStatsImpl(this);
       } catch (CacheConfigurationException ce) {
          throw ce;
       } catch (RuntimeException re) {
@@ -311,30 +323,31 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
       ConfigurationBuilderHolder defaultConfigurationBuilderHolder = parserRegistry.parseFile(defaultConfigurationFile);
 
       globalConfiguration = globalConfigurationBuilderHolder.getGlobalConfigurationBuilder().build();
-      defaultConfiguration = defaultConfigurationBuilderHolder.getDefaultConfigurationBuilder().build();
+      defaultConfiguration = defaultConfigurationBuilderHolder.getDefaultConfigurationBuilder().build(globalConfiguration);
 
       if (namedCacheFile != null) {
          ConfigurationBuilderHolder namedConfigurationBuilderHolder = parserRegistry.parseFile(namedCacheFile);
          Entry<String, ConfigurationBuilder> entry = namedConfigurationBuilderHolder.getNamedConfigurationBuilders().entrySet().iterator().next();
-         configurationOverrides.put(entry.getKey(), entry.getValue().build());
+         ConfigurationBuilder builder = entry.getValue();
+         configurationOverrides.put(entry.getKey(), builder.build(globalConfiguration));
       }
 
       globalComponentRegistry = new GlobalComponentRegistry(this.globalConfiguration, this, caches.keySet());
       authzHelper = new AuthorizationHelper(globalConfiguration.security(), AuditContext.CACHEMANAGER, globalConfiguration.globalJmxStatistics().cacheManagerName());
+      stats = new CacheContainerStatsImpl(this);
       if (start)
          start();
    }
 
-
    @Override
    public Configuration defineConfiguration(String cacheName, Configuration configuration) {
-      return defineConfiguration(cacheName, configuration, defaultConfiguration, true);
+      return defineConfiguration(cacheName, configuration, null, true);
    }
 
    @Override
    public Configuration defineConfiguration(String cacheName, String templateName, Configuration configurationOverride) {
       if (templateName != null) {
-         Configuration c = configurationOverrides.get(templateName);
+         Configuration c = DEFAULT_CACHE_NAME.equals(templateName) ? defaultConfiguration : configurationOverrides.get(templateName);
          if (c != null)
             return defineConfiguration(cacheName, configurationOverride, c, false);
          return defineConfiguration(cacheName, configurationOverride);
@@ -349,24 +362,42 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
       if (cacheName == null || configOverride == null)
          throw new NullPointerException("Null arguments not allowed");
       if (cacheName.equals(DEFAULT_CACHE_NAME))
-         throw new IllegalArgumentException("Cache name cannot be used as it is a reserved, internal name");
+         throw log.illegalCacheName(DEFAULT_CACHE_NAME);
       if (checkExisting) {
          Configuration existing = configurationOverrides.get(cacheName);
          if (existing != null) {
             ConfigurationBuilder builder = new ConfigurationBuilder();
             builder.read(existing);
             builder.read(configOverride);
-            Configuration configuration = builder.build();
+            Configuration configuration = builder.build(globalConfiguration);
             configurationOverrides.put(cacheName, configuration);
             return configuration;
          }
       }
       ConfigurationBuilder builder = new ConfigurationBuilder();
-      builder.read(defaultConfigIfNotPresent);
+      if (defaultConfigIfNotPresent != null) {
+         builder.read(defaultConfigIfNotPresent);
+      }
       builder.read(configOverride);
-      Configuration configuration = builder.build();
+      Configuration configuration = builder.build(globalConfiguration);
       configurationOverrides.put(cacheName, configuration);
       return configuration;
+   }
+
+   @Override
+   public void undefineConfiguration(String configurationName) {
+      authzHelper.checkPermission(AuthorizationPermission.ADMIN);
+      if (configurationName.equals(DEFAULT_CACHE_NAME))
+         throw log.illegalCacheName(DEFAULT_CACHE_NAME);
+      Configuration existing = configurationOverrides.get(configurationName);
+      if (existing != null) {
+         for(CacheWrapper cache : caches.values()) {
+            if (cache.getCache().getCacheConfiguration() == existing && cache.getCache().getStatus() != ComponentStatus.TERMINATED) {
+               throw log.configurationInUse(configurationName);
+            }
+         }
+         configurationOverrides.remove(configurationName);
+      }
    }
 
    /**
@@ -467,19 +498,22 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
       ComponentRegistry cacheComponentRegistry = globalComponentRegistry.getNamedComponentRegistry(cacheName);
       if (cacheComponentRegistry != null) {
          RemoveCacheCommand cmd = new RemoveCacheCommand(cacheName, this, globalComponentRegistry,
-               cacheComponentRegistry.getComponent(PersistenceManager.class));
+               cacheComponentRegistry.getComponent(PersistenceManager.class),
+               cacheComponentRegistry.getComponent(CacheJmxRegistration.class));
          Transport transport = getTransport();
          try {
             if (transport != null) {
                Configuration c = getConfiguration(cacheName);
                // Use sync replication timeout
-               transport.invokeRemotely(null, cmd, ResponseMode.SYNCHRONOUS, c.clustering().sync().replTimeout(), false, null, false, false);
+               transport.invokeRemotely(null, cmd, ResponseMode.SYNCHRONOUS, c.clustering().sync().replTimeout(), null, DeliverOrder.NONE, false);
             }
             // Once sent to the cluster, remove the local cache
             cmd.perform(null);
 
             // Remove cache configuration and remove it from the computed cache name list
             configurationOverrides.remove(cacheName);
+            // Remove cache from dependency graph
+            cacheDependencyGraph.remove(cacheName);
          } catch (Throwable t) {
             throw new CacheException("Error removing cache", t);
          }
@@ -513,10 +547,17 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
       return t == null ? null : t.getCoordinator();
    }
 
+   @ManagedAttribute(description = "The logical address of the cluster's coordinator", displayName = "Coordinator address", displayType = DisplayType.SUMMARY)
+   public String getCoordinatorAddress() {
+      Transport t = getTransport();
+      return t == null ? "N/A" : t.getCoordinator().toString();
+   }
+
    /**
     * {@inheritDoc}
     */
    @Override
+   @ManagedAttribute(description = "Indicates whether this node is coordinator", displayName = "Is coordinator?", displayType = DisplayType.SUMMARY)
    public boolean isCoordinator() {
       Transport t = getTransport();
       return t != null && t.isCoordinator();
@@ -585,7 +626,7 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
    private Configuration getConfiguration(String cacheName) {
       Configuration c;
       if (cacheName.equals(DEFAULT_CACHE_NAME) || !configurationOverrides.containsKey(cacheName))
-         c = new ConfigurationBuilder().read(defaultConfiguration).build();
+         c = new ConfigurationBuilder().read(defaultConfiguration).build(globalConfiguration);
       else
          c = configurationOverrides.get(cacheName);
       return c;
@@ -606,6 +647,15 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
       log.debugf("Started cache manager %s on %s", clusterName, nodeName);
    }
 
+   private void terminate(String cacheName) {
+      CacheWrapper cacheWrapper = this.caches.get(cacheName);
+      if (cacheWrapper != null && cacheWrapper.cache != null) {
+         Cache<?, ?> cache = cacheWrapper.cache;
+         unregisterCacheMBean(cache);
+         cache.stop();
+      }
+   }
+
    @Override
    public void stop() {
       authzHelper.checkPermission(AuthorizationPermission.LIFECYCLE);
@@ -616,25 +666,25 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
             if (!stopping) {
                log.debugf("Stopping cache manager %s on %s", globalConfiguration.transport().clusterName(), getAddress());
                stopping = true;
-               // make sure we stop the default cache LAST!
-               Cache<?, ?> defaultCache = null;
-               for (Map.Entry<String, CacheWrapper> entry : caches.entrySet()) {
-                  if (entry.getKey().equals(ClusterRegistryImpl.GLOBAL_REGISTRY_CACHE_NAME)) {
-                     // will be stopped by the GCR
-                  } else if (entry.getKey().equals(DEFAULT_CACHE_NAME)) {
-                     defaultCache = entry.getValue().cache;
-                  } else {
-                     Cache<?, ?> c = entry.getValue().cache;
-                     if (c != null) {
-                        unregisterCacheMBean(c);
-                        c.stop();
-                     }
-                  }
+               Set<String> cachesToStop = new LinkedHashSet<>(this.caches.size());
+               boolean defaultCacheHasDependency = false;
+               // stop ordered caches first
+               try {
+                  List<String> ordered = cacheDependencyGraph.topologicalSort();
+                  defaultCacheHasDependency = ordered.contains(DEFAULT_CACHE_NAME);
+                  cachesToStop.addAll(ordered);
+               } catch (CyclicDependencyException e) {
+                  log.stopOrderIgnored();
                }
-
-               if (defaultCache != null) {
-                  unregisterCacheMBean(defaultCache);
-                  defaultCache.stop();
+               cachesToStop.addAll(caches.keySet());
+               // will be stopped by the GCR
+               cachesToStop.remove(ClusterRegistryImpl.GLOBAL_REGISTRY_CACHE_NAME);
+               // make sure we stop the default cache LAST!
+               if(!defaultCacheHasDependency) {
+                  cachesToStop.add(DEFAULT_CACHE_NAME);
+               }
+               for (String cacheName : cachesToStop) {
+                  terminate(cacheName);
                }
                globalComponentRegistry.getComponent(CacheManagerJmxRegistration.class).stop();
                globalComponentRegistry.stop();
@@ -708,7 +758,8 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
       // Since caches could be modified dynamically, make a safe copy of keys
       names.addAll(Immutables.immutableSetConvert(caches.keySet()));
       names.remove(DEFAULT_CACHE_NAME);
-      names.remove(ClusterRegistryImpl.GLOBAL_REGISTRY_CACHE_NAME);
+      InternalCacheRegistry internalCacheRegistry = globalComponentRegistry.getComponent(InternalCacheRegistry.class);
+      internalCacheRegistry.filterInternalCaches(names);
       if (names.isEmpty())
          return InfinispanCollections.emptySet();
       else
@@ -769,7 +820,7 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
 
    @ManagedAttribute(description = "Returns the version of Infinispan", displayName = "Infinispan version", displayType = DisplayType.SUMMARY, dataType = DataType.TRAIT)
    public String getVersion() {
-      return Version.VERSION;
+      return Version.getVersion();
    }
 
    @ManagedAttribute(description = "The name of this cache manager", displayName = "Cache manager name", displayType = DisplayType.SUMMARY, dataType = DataType.TRAIT)
@@ -830,7 +881,8 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
 
    private void assertIsNotTerminated() {
       if (globalComponentRegistry.getStatus().isTerminated())
-         throw new IllegalStateException("Cache container has been stopped and cannot be reused. Recreate the cache container.");
+         throw new IllegalLifecycleStateException(
+               "Cache container has been stopped and cannot be reused. Recreate the cache container.");
    }
 
    @Override
@@ -842,6 +894,11 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
    @Override
    public GlobalComponentRegistry getGlobalComponentRegistry() {
       return globalComponentRegistry;
+   }
+
+   @Override
+   public void addCacheDependency(String from, String to) {
+      cacheDependencyGraph.addDependency(from, to);
    }
 
    @Override
@@ -874,5 +931,10 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
    @ManagedAttribute(description = "Global configuration properties", displayName = "Global configuration properties", dataType = DataType.TRAIT, displayType = DisplayType.SUMMARY)
    public Properties getGlobalConfigurationAsProperties() {
       return new PropertyFormatter().format(globalConfiguration);
+   }
+
+   @Override
+   public CacheContainerStats getStats() {
+      return stats;
    }
 }

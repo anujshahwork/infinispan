@@ -2,18 +2,18 @@ package org.infinispan.persistence.manager;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.commons.CacheException;
-import org.infinispan.commons.configuration.ConfigurationFor;
 import org.infinispan.commons.io.ByteBufferFactory;
 import org.infinispan.commons.marshall.StreamingMarshaller;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.Configuration;
-import org.infinispan.configuration.cache.CustomStoreConfiguration;
+import org.infinispan.configuration.cache.EvictionConfigurationBuilder;
 import org.infinispan.configuration.cache.Index;
 import org.infinispan.configuration.cache.StoreConfiguration;
 import org.infinispan.container.entries.ImmortalCacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
+import org.infinispan.eviction.EvictionType;
 import org.infinispan.factories.annotations.ComponentName;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
@@ -34,6 +34,7 @@ import org.infinispan.persistence.async.AdvancedAsyncCacheWriter;
 import org.infinispan.persistence.async.AsyncCacheLoader;
 import org.infinispan.persistence.async.AsyncCacheWriter;
 import org.infinispan.persistence.async.State;
+import org.infinispan.persistence.factory.CacheStoreFactoryRegistry;
 import org.infinispan.persistence.spi.AdvancedCacheLoader;
 import org.infinispan.persistence.spi.AdvancedCacheWriter;
 import org.infinispan.persistence.spi.CacheLoader;
@@ -65,6 +66,7 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.infinispan.context.Flag.*;
 import static org.infinispan.factories.KnownComponentNames.CACHE_MARSHALLER;
 import static org.infinispan.factories.KnownComponentNames.PERSISTENCE_EXECUTOR;
+import static org.infinispan.persistence.manager.PersistenceManager.AccessMode.BOTH;
 
 public class PersistenceManagerImpl implements PersistenceManager {
 
@@ -76,12 +78,13 @@ public class PersistenceManagerImpl implements PersistenceManager {
 
    TransactionManager transactionManager;
    private TimeService timeService;
-   private final List<CacheLoader> loaders = new ArrayList<CacheLoader>();
-   private final List<CacheWriter> writers = new ArrayList<CacheWriter>();
+   private final List<CacheLoader> loaders = new ArrayList<>();
+   private final List<CacheWriter> writers = new ArrayList<>();
 
    private final ReadWriteLock storesMutex = new ReentrantReadWriteLock();
-   private final Map<Object, StoreConfiguration> configMap = new HashMap<Object, StoreConfiguration>();
+   private final Map<Object, StoreConfiguration> configMap = new HashMap<>();
 
+   private CacheStoreFactoryRegistry cacheStoreFactoryRegistry;
 
    /**
     * making it volatile as it might change after @Start, so it needs the visibility.
@@ -90,12 +93,13 @@ public class PersistenceManagerImpl implements PersistenceManager {
    private Executor persistenceExecutor;
    private ByteBufferFactory byteBufferFactory;
    private MarshalledEntryFactory marshalledEntryFactory;
+   private volatile boolean clearOnStop;
 
    @Inject
    public void inject(AdvancedCache<Object, Object> cache, @ComponentName(CACHE_MARSHALLER) StreamingMarshaller marshaller,
                       Configuration configuration, TransactionManager transactionManager,
                       TimeService timeService, @ComponentName(PERSISTENCE_EXECUTOR) ExecutorService persistenceExecutor,
-                      ByteBufferFactory byteBufferFactory, MarshalledEntryFactory marshalledEntryFactory) {
+                      ByteBufferFactory byteBufferFactory, MarshalledEntryFactory marshalledEntryFactory, CacheStoreFactoryRegistry cacheStoreFactoryRegistry) {
       this.cache = cache;
       this.m = marshaller;
       this.configuration = configuration;
@@ -104,6 +108,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
       this.persistenceExecutor = persistenceExecutor;
       this.byteBufferFactory = byteBufferFactory;
       this.marshalledEntryFactory = marshalledEntryFactory;
+      this.cacheStoreFactoryRegistry = cacheStoreFactoryRegistry;
    }
 
    @Override
@@ -162,6 +167,9 @@ public class PersistenceManagerImpl implements PersistenceManager {
    @Override
    @Stop
    public void stop() {
+      // If needed, clear the persistent store before stopping
+      if (clearOnStop)
+         clearAllStores(AccessMode.BOTH);
 
       Set undelegated = new HashSet();
       for (CacheWriter w : writers) {
@@ -213,7 +221,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
       long start = timeService.time();
 
 
-      final int maxEntries = getMaxEntries();
+      final long maxEntries = getMaxEntries();
       final AtomicInteger loadedEntries = new AtomicInteger(0);
       final AdvancedCache<Object, Object> flaggedCache = getCacheForStateInsertion();
       preloadCl.process(null, new AdvancedCacheLoader.CacheLoaderTask() {
@@ -354,38 +362,16 @@ public class PersistenceManagerImpl implements PersistenceManager {
       }
    }
 
-   @Override
-   public boolean activate(Object key) {
-      if (!configuration.persistence().passivation()) {
-         return false;
-      }
-      log.tracef("Try to activate key=%s. removing it from all writers", key);
-
-      storesMutex.readLock().lock();
-      try {
-         boolean activated = false;
-         for (CacheWriter w : writers) {
-            StoreConfiguration conf = configMap.get(w);
-            if (!conf.shared()) {
-               activated = w.delete(key);
-            }
-         }
-         return activated;
-      } finally {
-         storesMutex.readLock().unlock();
-      }
-   }
-
 
    @Override
-   public void clearAllStores(boolean skipSharedStores) {
+   public void clearAllStores(AccessMode mode) {
       storesMutex.readLock().lock();
       try {
          for (CacheWriter w : writers) {
             if (w instanceof AdvancedCacheWriter) {
-               if (skipSharedStores && configMap.get(w).shared())
-                  continue;
-               ((AdvancedCacheWriter) w).clear();
+               if (mode.canPerform(configMap.get(w))) {
+                  ((AdvancedCacheWriter) w).clear();
+               }
             }
          }
       } finally {
@@ -394,14 +380,14 @@ public class PersistenceManagerImpl implements PersistenceManager {
    }
 
    @Override
-   public boolean deleteFromAllStores(Object key, boolean skipSharedStore) {
+   public boolean deleteFromAllStores(Object key, AccessMode mode) {
       storesMutex.readLock().lock();
       try {
          boolean removed = false;
          for (CacheWriter w : writers) {
-            if (skipSharedStore && configMap.get(w).shared())
-               continue;
-            removed |= w.delete(key);
+            if (mode.canPerform(configMap.get(w))) {
+               removed |= w.delete(key);
+            }
          }
          return removed;
       } finally {
@@ -417,24 +403,21 @@ public class PersistenceManagerImpl implements PersistenceManager {
 
    @Override
    public void processOnAllStores(Executor executor, KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata) {
-      processOnAllStores(executor, keyFilter, task, fetchValue, fetchMetadata, false);
+      processOnAllStores(executor, keyFilter, task, fetchValue, fetchMetadata, BOTH);
    }
 
    @Override
    public void processOnAllStores(KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task,
-                                  boolean fetchValue, boolean fetchMetadata, boolean skipSharedStore) {
-      processOnAllStores(persistenceExecutor, keyFilter, task, fetchValue, fetchMetadata, skipSharedStore);
+                                  boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
+      processOnAllStores(persistenceExecutor, keyFilter, task, fetchValue, fetchMetadata, mode);
    }
 
    @Override
-   public void processOnAllStores(Executor executor, KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata, boolean skipSharedStore) {
+   public void processOnAllStores(Executor executor, KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
       storesMutex.readLock().lock();
       try {
          for (CacheLoader loader : loaders) {
-            if (skipSharedStore && configMap.get(loader).shared())
-               continue;
-
-            if (loader instanceof AdvancedCacheLoader) {
+            if (mode.canPerform(configMap.get(loader)) && loader instanceof AdvancedCacheLoader) {
                ((AdvancedCacheLoader) loader).process(keyFilter, task, executor, fetchValue, fetchMetadata);
             }
          }
@@ -472,13 +455,13 @@ public class PersistenceManagerImpl implements PersistenceManager {
    }
 
    @Override
-   public void writeToAllStores(MarshalledEntry marshalledEntry, boolean skipSharedStores) {
+   public void writeToAllStores(MarshalledEntry marshalledEntry, AccessMode mode) {
       storesMutex.readLock().lock();
       try {
          for (CacheWriter w : writers) {
-            if (skipSharedStores && configMap.get(w).shared())
-               continue;
-            w.write(marshalledEntry);
+            if (mode.canPerform(configMap.get(w))) {
+               w.write(marshalledEntry);
+            }
          }
       } finally {
          storesMutex.readLock().unlock();
@@ -514,6 +497,11 @@ public class PersistenceManagerImpl implements PersistenceManager {
       return 0;
    }
 
+   @Override
+   public void setClearOnStop(boolean clearOnStop) {
+      this.clearOnStop = clearOnStop;
+   }
+
    public List<CacheLoader> getAllLoaders() {
       return Collections.unmodifiableList(loaders);
    }
@@ -524,66 +512,92 @@ public class PersistenceManagerImpl implements PersistenceManager {
 
    private void createLoadersAndWriters() {
       for (StoreConfiguration cfg : configuration.persistence().stores()) {
-         ConfigurationFor annotation = cfg.getClass().getAnnotation(ConfigurationFor.class);
-         Class classAnnotation = null;
-         if (annotation == null) {
-            if (cfg instanceof CustomStoreConfiguration) {
-               classAnnotation = ((CustomStoreConfiguration)cfg).customStoreClass();
-            }
-         } else {
-            classAnnotation = annotation.value();
-         }
-         if (classAnnotation == null) {
-            throw log.loaderConfigurationDoesNotSpecifyLoaderClass(cfg.getClass().getName());
-         }
-         Object instance = Util.getInstance(classAnnotation);
-         CacheWriter writer = instance instanceof CacheWriter ? (CacheWriter) instance : null;
-         CacheLoader loader = instance instanceof CacheLoader ? (CacheLoader) instance : null;
+         Object bareInstance = cacheStoreFactoryRegistry.createInstance(cfg);
 
+         StoreConfiguration processedConfiguration = cacheStoreFactoryRegistry.processStoreConfiguration(cfg);
 
-         if (cfg.ignoreModifications())
-            writer = null;
+         CacheWriter writer = createCacheWriter(bareInstance);
+         CacheLoader loader = createCacheLoader(bareInstance);
 
-         if (cfg.singletonStore().enabled() && writer != null) {
-            writer = (writer instanceof AdvancedCacheWriter) ?
-                  new AdvancedSingletonCacheWriter(writer, cfg.singletonStore()) :
-                  new SingletonCacheWriter(writer, cfg.singletonStore());
-         }
+         writer = postProcessWriter(processedConfiguration, writer);
+         loader = postProcessReader(processedConfiguration, writer, loader);
 
-         if (cfg.async().enabled() && writer != null) {
-            writer = createAsyncWriter(writer);
-            if (loader != null) {
-               AtomicReference<State> state = ((AsyncCacheWriter) writer).getState();
-               loader = (loader instanceof AdvancedCacheLoader) ?
-                     new AdvancedAsyncCacheLoader(loader, state) : new AsyncCacheLoader(loader, state);
-            }
-         }
-
-         InitializationContextImpl ctx = new InitializationContextImpl(cfg, cache, m, timeService, byteBufferFactory,
+         InitializationContextImpl ctx = new InitializationContextImpl(processedConfiguration, cache, m, timeService, byteBufferFactory,
                                                                        marshalledEntryFactory);
-         if (loader != null) {
-            if (loader instanceof DelegatingCacheLoader)
-               loader.init(ctx);
-            loaders.add(loader);
-            configMap.put(loader, cfg);
-         }
-         if (writer != null) {
-            if (writer instanceof DelegatingCacheWriter)
-               writer.init(ctx);
-            writers.add(writer);
-            configMap.put(writer, cfg);
-         }
-
-         //the delegates only propagate init if the underlaying object is a delegate as well.
-         // we do this in order to assure the init is only invoked once
-         if (instance instanceof CacheWriter) {
-            ((CacheWriter) instance).init(ctx);
-         } else {
-            ((CacheLoader)instance).init(ctx);
-         }
+         initializeLoader(processedConfiguration, loader, ctx);
+         initializeWriter(processedConfiguration, writer, ctx);
+         initializeBareInstance(bareInstance, ctx);
       }
    }
 
+   private CacheLoader postProcessReader(StoreConfiguration cfg, CacheWriter writer, CacheLoader loader) {
+      if(cfg.async().enabled() && loader != null && writer != null) {
+         loader = createAsyncLoader(loader, (AsyncCacheWriter) writer);
+      }
+      return loader;
+   }
+
+   private CacheWriter postProcessWriter(StoreConfiguration cfg, CacheWriter writer) {
+      if (writer != null) {
+         if(cfg.ignoreModifications()) {
+            writer = null;
+         } else if (cfg.singletonStore().enabled()) {
+            writer = createSingletonWriter(cfg, writer);
+         } else if (cfg.async().enabled()) {
+            writer = createAsyncWriter(writer);
+         }
+      }
+      return writer;
+   }
+
+   private CacheLoader createAsyncLoader(CacheLoader loader, AsyncCacheWriter asyncWriter) {
+      AtomicReference<State> state = asyncWriter.getState();
+      loader = (loader instanceof AdvancedCacheLoader) ?
+            new AdvancedAsyncCacheLoader(loader, state) : new AsyncCacheLoader(loader, state);
+      return loader;
+   }
+
+   private SingletonCacheWriter createSingletonWriter(StoreConfiguration cfg, CacheWriter writer) {
+      return (writer instanceof AdvancedCacheWriter) ?
+            new AdvancedSingletonCacheWriter(writer, cfg.singletonStore()) :
+            new SingletonCacheWriter(writer, cfg.singletonStore());
+   }
+
+   private void initializeWriter(StoreConfiguration cfg, CacheWriter writer, InitializationContextImpl ctx) {
+      if (writer != null) {
+         if (writer instanceof DelegatingCacheWriter)
+            writer.init(ctx);
+         writers.add(writer);
+         configMap.put(writer, cfg);
+      }
+   }
+
+   private void initializeLoader(StoreConfiguration cfg, CacheLoader loader, InitializationContextImpl ctx) {
+      if (loader != null) {
+         if (loader instanceof DelegatingCacheLoader)
+            loader.init(ctx);
+         loaders.add(loader);
+         configMap.put(loader, cfg);
+      }
+   }
+
+   private void initializeBareInstance(Object instance, InitializationContextImpl ctx) {
+      // the delegates only propagate init if the underlaying object is a delegate as well.
+      // we do this in order to assure the init is only invoked once
+      if (instance instanceof CacheWriter) {
+         ((CacheWriter) instance).init(ctx);
+      } else {
+         ((CacheLoader) instance).init(ctx);
+      }
+   }
+
+   private CacheLoader createCacheLoader(Object instance) {
+      return instance instanceof CacheLoader ? (CacheLoader) instance : null;
+   }
+
+   private CacheWriter createCacheWriter(Object instance) {
+      return instance instanceof CacheWriter ? (CacheWriter) instance : null;
+   }
 
    protected AsyncCacheWriter createAsyncWriter(CacheWriter writer) {
       return (writer instanceof AdvancedCacheWriter) ?
@@ -612,7 +626,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
       }
 
       if (hasShared) {
-         if (!localIndexingEnabled())
+         if (indexShareable())
             flags.add(SKIP_INDEXING);
       } else {
          flags.add(SKIP_INDEXING);
@@ -626,9 +640,14 @@ public class PersistenceManagerImpl implements PersistenceManager {
       return configuration.indexing().index() == Index.LOCAL;
    }
 
-   private int getMaxEntries() {
-      int ne = Integer.MAX_VALUE;
-      if (configuration.eviction().strategy().isEnabled()) ne = configuration.eviction().maxEntries();
+   private boolean indexShareable() {
+      return configuration.indexing().indexShareable();
+   }
+
+   private long getMaxEntries() {
+      long ne = EvictionConfigurationBuilder.EVICTION_MAX_SIZE;
+      if (configuration.eviction().strategy().isEnabled() && configuration.eviction().type() == EvictionType.COUNT)
+         ne = configuration.eviction().maxEntries();
       return ne;
    }
 

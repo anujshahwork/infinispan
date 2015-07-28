@@ -28,11 +28,13 @@ import javax.security.auth.login.LoginContext;
 import javax.security.auth.login.LoginException;
 
 import org.infinispan.commons.util.ReflectionUtil;
+import org.infinispan.configuration.global.GlobalConfiguration;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.core.ProtocolServer;
 import org.infinispan.server.core.configuration.ProtocolServerConfiguration;
 import org.infinispan.server.core.configuration.ProtocolServerConfigurationBuilder;
 import org.infinispan.server.core.transport.Transport;
+import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
 import org.jboss.as.clustering.infinispan.subsystem.EmbeddedCacheManagerConfiguration;
 import org.jboss.as.domain.management.AuthMechanism;
@@ -56,7 +58,7 @@ class ProtocolServerService implements Service<ProtocolServer> {
    // attribute)
    private final InjectedValue<EmbeddedCacheManager> cacheManager = new InjectedValue<EmbeddedCacheManager>();
    // The cacheManager configuration service
-   private final InjectedValue<EmbeddedCacheManagerConfiguration> cacheManagerConfiguration = new InjectedValue<EmbeddedCacheManagerConfiguration>();
+   private final InjectedValue<GlobalConfiguration> cacheManagerConfiguration = new InjectedValue<GlobalConfiguration>();
    // The socketBinding that will be injected by the container
    private final InjectedValue<SocketBinding> socketBinding = new InjectedValue<SocketBinding>();
    // The security realm for authentication that will be injected by the container
@@ -65,6 +67,8 @@ class ProtocolServerService implements Service<ProtocolServer> {
    private final InjectedValue<SecurityDomainContext> saslSecurityDomain = new InjectedValue<SecurityDomainContext>();
    // The security realm for encryption that will be injected by the container
    private final InjectedValue<SecurityRealm> encryptionSecurityRealm = new InjectedValue<SecurityRealm>();
+   // Te extension manager
+   private final InjectedValue<ExtensionManagerService> extensionManager = new InjectedValue<>();
    // The configuration for this service
    private final ProtocolServerConfigurationBuilder<?, ?> configurationBuilder;
    // The class which determines the type of server
@@ -80,7 +84,6 @@ class ProtocolServerService implements Service<ProtocolServer> {
    private LoginContext serverLoginContext = null;
    private String serverContextName;
 
-
    ProtocolServerService(String serverName, Class<? extends ProtocolServer> serverClass, ProtocolServerConfigurationBuilder<?, ?> configurationBuilder) {
       this.configurationBuilder = configurationBuilder;
       this.serverClass = serverClass;
@@ -94,10 +97,10 @@ class ProtocolServerService implements Service<ProtocolServer> {
 
       boolean done = false;
       try {
-         EmbeddedCacheManagerConfiguration embeddedCacheManagerConfiguration = cacheManagerConfiguration.getOptionalValue();
-         if (embeddedCacheManagerConfiguration != null) {
+         GlobalConfiguration embeddedCacheManagerConfiguration = cacheManagerConfiguration.getOptionalValue();
+         /*if (embeddedCacheManagerConfiguration != null) {
             configurationBuilder.defaultCacheName(embeddedCacheManagerConfiguration.getDefaultCache());
-         }
+         }*/
          SocketBinding socketBinding = getSocketBinding().getValue();
          InetSocketAddress socketAddress = socketBinding.getSocketAddress();
          configurationBuilder.host(socketAddress.getAddress().getHostAddress());
@@ -136,6 +139,8 @@ class ProtocolServerService implements Service<ProtocolServer> {
          // Start the connector
          startProtocolServer(configurationBuilder.build());
 
+         addToExtensionManagerIfHotRod();
+
          done = true;
       } catch (StartException e) {
          throw e;
@@ -146,6 +151,18 @@ class ProtocolServerService implements Service<ProtocolServer> {
             doStop();
          }
       }
+   }
+
+   private void addToExtensionManagerIfHotRod() {
+      // Similar thing done above, eventually this class should be split per protocol server type
+      if (protocolServer instanceof HotRodServer)
+         extensionManager.getValue().addHotRodServer((HotRodServer) protocolServer);
+   }
+
+   private void removeFromExtensionManagerIfHotRod() {
+      // Similar thing done above, eventually this class should be split per protocol server type
+      if (protocolServer instanceof HotRodServer)
+         extensionManager.getValue().removeHotRodServer((HotRodServer) protocolServer);
    }
 
    private void startProtocolServer(ProtocolServerConfiguration configuration) throws StartException {
@@ -176,6 +193,8 @@ class ProtocolServerService implements Service<ProtocolServer> {
       try {
          if (protocolServer != null) {
             ROOT_LOGGER.connectorStopping(serverName);
+
+            removeFromExtensionManagerIfHotRod();
             try {
                protocolServer.stop();
             } catch (Exception e) {
@@ -201,7 +220,7 @@ class ProtocolServerService implements Service<ProtocolServer> {
       return protocolServer;
    }
 
-   InjectedValue<EmbeddedCacheManagerConfiguration> getCacheManagerConfiguration() {
+   InjectedValue<GlobalConfiguration> getCacheManagerConfiguration() {
       return cacheManagerConfiguration;
    }
 
@@ -225,7 +244,11 @@ class ProtocolServerService implements Service<ProtocolServer> {
       return encryptionSecurityRealm;
    }
 
-   public Transport getTransport() {
+   InjectedValue<ExtensionManagerService> getExtensionManager() {
+      return extensionManager;
+   }
+
+    public Transport getTransport() {
       return transport;
    }
 

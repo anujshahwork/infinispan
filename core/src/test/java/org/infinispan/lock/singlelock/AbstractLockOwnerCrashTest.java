@@ -6,7 +6,6 @@ import org.infinispan.transaction.LockingMode;
 import org.infinispan.transaction.tm.DummyTransaction;
 import org.testng.annotations.Test;
 
-import javax.transaction.Status;
 import javax.transaction.Transaction;
 
 /**
@@ -40,14 +39,13 @@ public abstract class AbstractLockOwnerCrashTest extends AbstractCrashTest {
                cache(1).put(k, "v");
                transaction = (DummyTransaction) tm(1).getTransaction();
                log.trace("Before preparing");
-               transaction.notifyBeforeCompletion();
                transaction.runPrepare();
                tm(1).suspend();
             } catch (Throwable e) {
-               e.printStackTrace();
+               log.errorf(e, "Error preparing transaction for key %s", k);
             }
          }
-      }, false);
+      });
 
 
       eventually(new Condition() {
@@ -72,19 +70,17 @@ public abstract class AbstractLockOwnerCrashTest extends AbstractCrashTest {
                cache(secondTxNode).put(k, "v2");
                tm(secondTxNode).commit();
             } catch (Exception e) {
-               e.printStackTrace();
+               log.errorf(e, "Error committing transaction for key %s", k);
             }
          }
-      }, false);
+      });
 
       // this 'ensures' transaction called 'suspend' has the chance to start the prepare phase and is waiting to acquire the locks on k held by first transaction before it gets resumed
       Thread.sleep(1000);
 
       log.trace("Before completing the transaction!");
       tm(1).resume(transaction);
-      transaction.runCommitTx();
-      transaction.notifyAfterCompletion(Status.STATUS_COMMITTED);
-      tm(1).suspend();
+      transaction.runCommit(false);
 
       //make sure the 2nd transaction succeeds as well eventually
       eventually(new AbstractInfinispanTest.Condition() {

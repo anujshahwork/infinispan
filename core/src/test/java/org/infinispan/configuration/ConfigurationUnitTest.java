@@ -13,8 +13,10 @@ import javax.xml.transform.stream.StreamSource;
 import javax.xml.validation.SchemaFactory;
 
 import org.infinispan.Cache;
+import org.infinispan.Version;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.util.FileLookup;
+import org.infinispan.commons.util.FileLookupFactory;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
@@ -171,9 +173,9 @@ public class ConfigurationUnitTest extends AbstractInfinispanTest {
 
    @Test
    public void testSchema() throws Exception {
-      FileLookup lookup = new FileLookup();
-      URL schemaFile = lookup.lookupFileLocation("schema/infinispan-config-7.0.xsd", Thread.currentThread().getContextClassLoader());
-      Source xmlFile = new StreamSource(lookup.lookupFile("configs/unified/all.xml", Thread.currentThread().getContextClassLoader()));
+      FileLookup lookup = FileLookupFactory.newInstance();
+      URL schemaFile = lookup.lookupFileLocation(String.format("schema/infinispan-config-%s.xsd", Version.getMajorMinor()), Thread.currentThread().getContextClassLoader());
+      Source xmlFile = new StreamSource(lookup.lookupFile(String.format("configs/unified/%s.xml", Version.getMajorMinor()), Thread.currentThread().getContextClassLoader()));
       SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI).newSchema(schemaFile).newValidator().validate(xmlFile);
    }
 
@@ -266,12 +268,9 @@ public class ConfigurationUnitTest extends AbstractInfinispanTest {
 
    @Test(expectedExceptions = CacheConfigurationException.class)
    public void testWrongCacheModeConfiguration() throws Exception {
-      withCacheManager(new CacheManagerCallable(createTestCacheManager()) {
-         @Override
-         public void call() {
-            cm.getCache().put("key", "value");
-         }
-      });
+      ConfigurationBuilder config = new ConfigurationBuilder();
+      config.clustering().cacheMode(CacheMode.REPL_ASYNC);
+      TestCacheManagerFactory.createCacheManager(config);
    }
 
    public void testCacheModeConfiguration() throws Exception {
@@ -286,7 +285,7 @@ public class ConfigurationUnitTest extends AbstractInfinispanTest {
    private EmbeddedCacheManager createTestCacheManager() {
       ConfigurationBuilder config = new ConfigurationBuilder();
       config.clustering().cacheMode(CacheMode.REPL_ASYNC);
-      EmbeddedCacheManager cm = TestCacheManagerFactory.createCacheManager(config);
+      EmbeddedCacheManager cm = TestCacheManagerFactory.createClusteredCacheManager(config);
       config = new ConfigurationBuilder();
       cm.defineConfiguration("local", config.build());
       return cm;

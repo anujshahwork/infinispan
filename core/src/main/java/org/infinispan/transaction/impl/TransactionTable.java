@@ -7,6 +7,7 @@ import org.infinispan.commands.tx.RollbackCommand;
 import org.infinispan.commands.write.WriteCommand;
 import org.infinispan.commons.CacheException;
 import org.infinispan.commons.equivalence.AnyEquivalence;
+import org.infinispan.commons.equivalence.IdentityEquivalence;
 import org.infinispan.commons.util.CollectionFactory;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.commons.util.Util;
@@ -23,9 +24,12 @@ import org.infinispan.notifications.Listener;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
 import org.infinispan.notifications.cachelistener.annotation.TopologyChanged;
 import org.infinispan.notifications.cachelistener.event.TopologyChangedEvent;
+import org.infinispan.notifications.cachemanagerlistener.CacheManagerNotifier;
+import org.infinispan.notifications.cachemanagerlistener.annotation.ViewChanged;
+import org.infinispan.notifications.cachemanagerlistener.event.ViewChangedEvent;
+import org.infinispan.partitionhandling.impl.PartitionHandlingManager;
 import org.infinispan.remoting.rpc.RpcManager;
 import org.infinispan.remoting.transport.Address;
-import org.infinispan.topology.CacheTopology;
 import org.infinispan.transaction.LockingMode;
 import org.infinispan.transaction.synchronization.SyncLocalTransaction;
 import org.infinispan.transaction.synchronization.SynchronizationAdapter;
@@ -38,12 +42,15 @@ import org.infinispan.util.logging.LogFactory;
 
 import javax.transaction.Transaction;
 import javax.transaction.TransactionSynchronizationRegistry;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -61,7 +68,13 @@ import java.util.concurrent.locks.ReentrantLock;
  * @since 4.0
  */
 @Listener
-public class TransactionTable {
+public class TransactionTable implements org.infinispan.transaction.TransactionTable {
+   public enum CompletedTransactionStatus {
+      NOT_COMPLETED, COMMITTED, ABORTED, EXPIRED
+   }
+
+   private static final Log log = LogFactory.getLog(TransactionTable.class);
+   private static final boolean trace = log.isTraceEnabled();
 
    public static final int CACHE_STOPPED_TOPOLOGY_ID = -1;
    /**
@@ -69,7 +82,6 @@ public class TransactionTable {
     */
    private volatile int minTxTopologyId = CACHE_STOPPED_TOPOLOGY_ID;
    private volatile int currentTopologyId = CACHE_STOPPED_TOPOLOGY_ID;
-   private static final Log log = LogFactory.getLog(TransactionTable.class);
    protected Configuration configuration;
    protected InvocationContextFactory icf;
    protected TransactionCoordinator txCoordinator;
@@ -77,18 +89,21 @@ public class TransactionTable {
    protected RpcManager rpcManager;
    protected CommandsFactory commandsFactory;
    protected ClusteringDependentLogic clusteringLogic;
-   protected boolean clustered = false;
-   private ConcurrentMap<Transaction, LocalTransaction> localTransactions;
-   private ConcurrentMap<GlobalTransaction, LocalTransaction> globalToLocalTransactions;
-   private ConcurrentMap<GlobalTransaction, RemoteTransaction> remoteTransactions;
    private InterceptorChain invoker;
    private CacheNotifier notifier;
    private TransactionSynchronizationRegistry transactionSynchronizationRegistry;
-   private Lock minTopologyRecalculationLock;
    private CompletedTransactionsInfo completedTransactionsInfo;
    private ScheduledExecutorService executorService;
    private String cacheName;
    private TimeService timeService;
+   private CacheManagerNotifier cacheManagerNotifier;
+   protected PartitionHandlingManager partitionHandlingManager;
+
+   private ConcurrentMap<Transaction, LocalTransaction> localTransactions;
+   private ConcurrentMap<GlobalTransaction, LocalTransaction> globalToLocalTransactions;
+   private ConcurrentMap<GlobalTransaction, RemoteTransaction> remoteTransactions;
+   private Lock minTopologyRecalculationLock;
+   protected boolean clustered = false;
 
    @Inject
    public void initialize(RpcManager rpcManager, Configuration configuration,
@@ -96,7 +111,7 @@ public class TransactionTable {
                           TransactionFactory gtf, TransactionCoordinator txCoordinator,
                           TransactionSynchronizationRegistry transactionSynchronizationRegistry,
                           CommandsFactory commandsFactory, ClusteringDependentLogic clusteringDependentLogic, Cache cache,
-                          TimeService timeService) {
+                          TimeService timeService, CacheManagerNotifier cacheManagerNotifier, PartitionHandlingManager partitionHandlingManager) {
       this.rpcManager = rpcManager;
       this.configuration = configuration;
       this.icf = icf;
@@ -107,29 +122,30 @@ public class TransactionTable {
       this.transactionSynchronizationRegistry = transactionSynchronizationRegistry;
       this.commandsFactory = commandsFactory;
       this.clusteringLogic = clusteringDependentLogic;
+      this.cacheManagerNotifier = cacheManagerNotifier;
       this.cacheName = cache.getName();
       this.timeService = timeService;
+      this.partitionHandlingManager = partitionHandlingManager;
+
+      this.clustered = configuration.clustering().cacheMode().isClustered();
    }
 
    @Start(priority = 9) // Start before cache loader manager
    @SuppressWarnings("unused")
    public void start() {
       final int concurrencyLevel = configuration.locking().concurrencyLevel();
-      localTransactions = CollectionFactory.makeConcurrentMap(concurrencyLevel, 0.75f, concurrencyLevel);
+      //use the IdentityEquivalence because some Transaction implementation does not have a stable hash code function
+      //and it can cause some leaks in the concurrent map.
+      localTransactions = CollectionFactory.makeConcurrentMap(concurrencyLevel, 0.75f, concurrencyLevel,
+            new IdentityEquivalence<Transaction>(),
+            AnyEquivalence.getInstance());
       globalToLocalTransactions = CollectionFactory.makeConcurrentMap(concurrencyLevel, 0.75f, concurrencyLevel);
-      if (configuration.clustering().cacheMode().isClustered()) {
+
+      boolean transactional = configuration.transaction().transactionMode().isTransactional();
+      if (clustered && transactional) {
          minTopologyRecalculationLock = new ReentrantLock();
-         // Only initialize this if we are clustered.
          remoteTransactions = CollectionFactory.makeConcurrentMap(concurrencyLevel, 0.75f, concurrencyLevel);
-         notifier.addListener(this);
-         clustered = true;
-      }
 
-      boolean totalOrder = configuration.transaction().transactionProtocol().isTotalOrder();
-      if (clustered && !totalOrder) {
-         completedTransactionsInfo = new CompletedTransactionsInfo();
-
-         // Periodically run a task to cleanup the transaction table from completed transactions.
          ThreadFactory tf = new ThreadFactory() {
             @Override
             public Thread newThread(Runnable r) {
@@ -139,26 +155,60 @@ public class TransactionTable {
                return th;
             }
          };
-
          executorService = Executors.newSingleThreadScheduledExecutor(tf);
 
-         long interval = configuration.transaction().reaperWakeUpInterval();
-         executorService.scheduleAtFixedRate(new Runnable() {
-            @Override
-            public void run() {
-               completedTransactionsInfo.cleanupCompletedTransactions();
-            }
-         }, interval, interval, TimeUnit.MILLISECONDS);
+         notifier.addListener(this);
+         cacheManagerNotifier.addListener(this);
+
+         boolean totalOrder = configuration.transaction().transactionProtocol().isTotalOrder();
+         if (!totalOrder) {
+            completedTransactionsInfo = new CompletedTransactionsInfo();
+
+            // Periodically run a task to cleanup the transaction table of completed transactions.
+            long interval = configuration.transaction().reaperWakeUpInterval();
+            executorService.scheduleAtFixedRate(new Runnable() {
+               @Override
+               public void run() {
+                  completedTransactionsInfo.cleanupCompletedTransactions();
+               }
+            }, interval, interval, TimeUnit.MILLISECONDS);
+
+            executorService.scheduleAtFixedRate(new Runnable() {
+               @Override
+               public void run() {
+                  cleanupTimedOutTransactions();
+               }
+            }, interval, interval, TimeUnit.MILLISECONDS);
+         }
       }
+   }
+
+   @Override
+   public GlobalTransaction getGlobalTransaction(Transaction transaction) {
+      if (transaction == null) {
+         throw new NullPointerException("Transaction must not be null.");
+      }
+      LocalTransaction localTransaction = localTransactions.get(transaction);
+      return localTransaction != null ? localTransaction.getGlobalTransaction() : null;
+   }
+
+   @Override
+   public Collection<GlobalTransaction> getLocalGlobalTransaction() {
+      return Collections.unmodifiableCollection(globalToLocalTransactions.keySet());
+   }
+
+   @Override
+   public Collection<GlobalTransaction> getRemoteGlobalTransaction() {
+      return Collections.unmodifiableCollection(remoteTransactions.keySet());
    }
 
    @Stop
    @SuppressWarnings("unused")
    private void stop() {
-      
+      cacheManagerNotifier.removeListener(this);
       if (executorService != null)
          executorService.shutdownNow();
-      
+
       if (clustered) {
          notifier.removeListener(this);
          currentTopologyId = CACHE_STOPPED_TOPOLOGY_ID; // indicate that the cache has stopped
@@ -184,8 +234,8 @@ public class TransactionTable {
    public void enlist(Transaction transaction, LocalTransaction localTransaction) {
       if (!localTransaction.isEnlisted()) {
          SynchronizationAdapter sync = new SynchronizationAdapter(
-               localTransaction, txCoordinator, commandsFactory, rpcManager,
-               this, clusteringLogic, configuration);
+                localTransaction, txCoordinator, commandsFactory, rpcManager,
+                this, clusteringLogic, configuration, partitionHandlingManager);
          if (transactionSynchronizationRegistry != null) {
             try {
                transactionSynchronizationRegistry.registerInterposedSynchronization(sync);
@@ -227,47 +277,77 @@ public class TransactionTable {
       return minTxTopologyId;
    }
 
-   public void cleanupStaleTransactions(CacheTopology cacheTopology) {
-      int topologyId = cacheTopology.getTopologyId();
-      List<Address> members = cacheTopology.getMembers();
-
-      // We only care about transactions originated before this topology update
-      if (getMinTopologyId() >= topologyId)
+   public void cleanupLeaverTransactions(List<Address> members) {
+      // Can happen if the cache is non-transactional
+      if (remoteTransactions == null)
          return;
 
-      log.tracef("Checking for transactions originated on leavers. Current members are %s, remote transactions: %d",
+      if (trace) log.tracef("Checking for transactions originated on leavers. Current cache members are %s, remote transactions: %d",
             members, remoteTransactions.size());
-      Set<GlobalTransaction> toKill = new HashSet<GlobalTransaction>();
+      HashSet<Address> membersSet = new HashSet<>(members);
+      List<GlobalTransaction> toKill = new ArrayList<>();
       for (Map.Entry<GlobalTransaction, RemoteTransaction> e : remoteTransactions.entrySet()) {
          GlobalTransaction gt = e.getKey();
-         RemoteTransaction remoteTx = e.getValue();
-         log.tracef("Checking transaction %s", gt);
-         // The topology id check is needed for joiners
-         if (remoteTx.getTopologyId() < topologyId && !members.contains(gt.getAddress())) {
+         if (trace) log.tracef("Checking transaction %s", gt);
+         if (!membersSet.contains(gt.getAddress())) {
             toKill.add(gt);
          }
       }
 
       if (toKill.isEmpty()) {
-         log.tracef("No global transactions pertain to originator(s) who have left the cluster.");
+         if (trace) log.tracef("No remote transactions pertain to originator(s) who have left the cluster.");
       } else {
-         log.tracef("%s global transactions pertain to leavers and need to be killed", toKill.size());
-      }
+         log.debugf("The originating node left the cluster for %d remote transactions", toKill.size());
+         for (GlobalTransaction gtx : toKill) {
+            if (partitionHandlingManager.canRollbackTransactionAfterOriginatorLeave(gtx)) {
+               log.debugf("Rolling back transaction %s because originator %s left the cluster", gtx, gtx.getAddress());
+               killTransaction(gtx);
+            } else {
+               log.debugf("Keeping transaction %s after the originator %s left the cluster.", gtx, gtx.getAddress());
+            }
+         }
 
-      for (GlobalTransaction gtx : toKill) {
-         log.tracef("Killing remote transaction originating on leaver %s", gtx);
-         RollbackCommand rc = new RollbackCommand(cacheName, gtx);
-         rc.init(invoker, icf, TransactionTable.this);
-         try {
-            rc.perform(null);
-            log.tracef("Rollback of transaction %s complete.", gtx);
-         } catch (Throwable e) {
-            log.unableToRollbackGlobalTx(gtx, e);
+         if (trace) log.tracef("Completed cleaning transactions originating on leavers. Remote transactions remaining: %d",
+                               remoteTransactions.size());
+      }
+   }
+
+   public void cleanupTimedOutTransactions() {
+      if (trace) log.tracef("About to cleanup remote transactions older than %d ms", configuration.transaction().completedTxTimeout());
+      long beginning = timeService.time();
+      long cutoffCreationTime = beginning - TimeUnit.MILLISECONDS.toNanos(configuration.transaction().completedTxTimeout());
+      List<GlobalTransaction> toKill = new ArrayList<>();
+
+      // Check remote transactions.
+      for(Map.Entry<GlobalTransaction, RemoteTransaction> e : remoteTransactions.entrySet()) {
+         GlobalTransaction gtx = e.getKey();
+         RemoteTransaction remoteTx = e.getValue();
+         if(remoteTx != null) {
+            if (trace) log.tracef("Checking transaction %s", gtx);
+            // Check the time.
+            if (remoteTx.getCreationTime() - cutoffCreationTime < 0) {
+               long duration = timeService.timeDuration(remoteTx.getCreationTime(), beginning, TimeUnit.MILLISECONDS);
+               log.remoteTransactionTimeout(gtx, duration);
+               toKill.add(gtx);
+            }
          }
       }
 
-      log.tracef("Completed cleaning transactions originating on leavers. Remote transactions remaining: %d",
-            remoteTransactions.size());
+      // Rollback the orphaned transactions and release any held locks.
+      for (GlobalTransaction gtx : toKill) {
+         killTransaction(gtx);
+      }
+   }
+
+   private void killTransaction(GlobalTransaction gtx) {
+      RollbackCommand rc = new RollbackCommand(cacheName, gtx);
+      rc.init(invoker, icf, TransactionTable.this);
+      try {
+         rc.perform(null);
+         if (trace) log.tracef("Rollback of transaction %s complete.", gtx);
+      } catch (Throwable e) {
+         log.unableToRollbackGlobalTx(gtx, e);
+      }
    }
 
    /**
@@ -280,7 +360,7 @@ public class TransactionTable {
 
    public void remoteTransactionRollback(GlobalTransaction gtx) {
       final RemoteTransaction remove = removeRemoteTransaction(gtx);
-      log.tracef("Removed local transaction %s? %b", gtx, remove);
+      if (trace) log.tracef("Removed local transaction %s? %b", gtx, remove);
    }
 
    /**
@@ -300,12 +380,12 @@ public class TransactionTable {
             : txFactory.newRemoteTransaction(modifications, globalTx, topologyId);
       RemoteTransaction existing = remoteTransactions.putIfAbsent(globalTx, remoteTransaction);
       if (existing != null) {
-         log.tracef("Remote transaction already registered: %s", existing);
+         if (trace) log.tracef("Remote transaction already registered: %s", existing);
          return existing;
       } else {
-         log.tracef("Created and registered remote transaction %s", remoteTransaction);
+         if (trace) log.tracef("Created and registered remote transaction %s", remoteTransaction);
          if (remoteTransaction.getTopologyId() < minTxTopologyId) {
-            log.tracef("Changing minimum topology ID from %d to %d", minTxTopologyId, remoteTransaction.getTopologyId());
+            if (trace) log.tracef("Changing minimum topology ID from %d to %d", minTxTopologyId, remoteTransaction.getTopologyId());
             minTxTopologyId = remoteTransaction.getTopologyId();
          }
          return remoteTransaction;
@@ -322,7 +402,7 @@ public class TransactionTable {
          Address localAddress = rpcManager != null ? rpcManager.getTransport().getAddress() : null;
          GlobalTransaction tx = txFactory.newGlobalTransaction(localAddress, false);
          current = txFactory.newLocalTransaction(transaction, tx, implicitTransaction, currentTopologyId);
-         log.tracef("Created a new local transaction: %s", current);
+         if (trace) log.tracef("Created a new local transaction: %s", current);
          localTransactions.put(transaction, current);
          globalToLocalTransactions.put(current.getGlobalTransaction(), current);
          notifier.notifyTransactionRegistered(tx, true);
@@ -353,7 +433,7 @@ public class TransactionTable {
          if (clustered) {
             recalculateMinTopologyIdIfNeeded(cacheTransaction);
          }
-         log.tracef("Removed %s from transaction table.", cacheTransaction);
+         if (trace) log.tracef("Removed %s from transaction table.", cacheTransaction);
          cacheTransaction.notifyOnTransactionFinished();
       }
    }
@@ -370,7 +450,7 @@ public class TransactionTable {
 
    public final RemoteTransaction removeRemoteTransaction(GlobalTransaction txId) {
       RemoteTransaction removed = remoteTransactions.remove(txId);
-      log.tracef("Removed remote transaction %s ? %s", txId, removed);
+      if (trace) log.tracef("Removed remote transaction %s ? %s", txId, removed);
       releaseResources(removed);
       return removed;
    }
@@ -419,7 +499,7 @@ public class TransactionTable {
          // Assume that we only get here if we are clustered.
          int removedTransactionTopologyId = removedTransaction.getTopologyId();
          if (removedTransactionTopologyId < minTxTopologyId) {
-            log.tracef("A transaction has a topology ID (%s) that is smaller than the smallest transaction topology ID (%s) this node knows about!  This can happen if a concurrent thread recalculates the minimum topology ID after the current transaction has been removed from the transaction table.", removedTransactionTopologyId, minTxTopologyId);
+            if (trace) log.tracef("A transaction has a topology ID (%s) that is smaller than the smallest transaction topology ID (%s) this node knows about!  This can happen if a concurrent thread recalculates the minimum topology ID after the current transaction has been removed from the transaction table.", removedTransactionTopologyId, minTxTopologyId);
          } else if (removedTransactionTopologyId == minTxTopologyId && removedTransactionTopologyId < currentTopologyId) {
             // We should only need to re-calculate the minimum topology ID if the transaction being completed
             // has the same ID as the smallest known transaction ID, to check what the new smallest is, and this is
@@ -434,13 +514,24 @@ public class TransactionTable {
    public void onTopologyChange(TopologyChangedEvent<?, ?> tce) {
       // don't do anything if this cache is not clustered
       if (clustered) {
-         if (tce.isPre()) {
+         if (!tce.isPre()) {
+            // The topology id must be updated after the topology was updated in StateConsumerImpl,
+            // as state transfer requires transactions not sent to the new owners to have a smaller topology id.
             currentTopologyId = tce.getNewTopologyId();
-         } else {
             log.debugf("Topology changed, recalculating minTopologyId");
             calculateMinTopologyId(-1);
          }
       }
+   }
+
+   @ViewChanged
+   public void onViewChange(final ViewChangedEvent e) {
+      executorService.submit(new Callable<Void>() {
+         public Void call() {
+            cleanupLeaverTransactions(e.getNewMembers());
+            return null;
+         }
+      });
    }
 
    /**
@@ -473,10 +564,10 @@ public class TransactionTable {
                if (topologyId < minTopologyIdFound) minTopologyIdFound = topologyId;
             }
             if (minTopologyIdFound != minTxTopologyId) {
-               log.tracef("Changing minimum topology ID from %s to %s", minTxTopologyId, minTopologyIdFound);
+               if (trace) log.tracef("Changing minimum topology ID from %s to %s", minTxTopologyId, minTopologyIdFound);
                minTxTopologyId = minTopologyIdFound;
             } else {
-               log.tracef("Minimum topology ID still is %s; nothing to change", minTopologyIdFound);
+               if (trace) log.tracef("Minimum topology ID still is %s; nothing to change", minTopologyIdFound);
             }
          }
       } finally {
@@ -520,25 +611,35 @@ public class TransactionTable {
     * on a remote node. This might cause leaks, e.g. if the transaction is prepared, committed and prepared again.
     * Once marked as completed (because of commit or rollback) any further prepare received on that transaction are discarded.
     */
-   public void markTransactionCompleted(GlobalTransaction gtx) {
+   public void markTransactionCompleted(GlobalTransaction gtx, boolean successful) {
       if (completedTransactionsInfo != null) {
-         completedTransactionsInfo.markTransactionCompleted(gtx);
+         completedTransactionsInfo.markTransactionCompleted(gtx, successful);
       }
    }
 
    /**
-    * @see #markTransactionCompleted(org.infinispan.transaction.xa.GlobalTransaction)
+    * @see #markTransactionCompleted(org.infinispan.transaction.xa.GlobalTransaction, boolean)
     */
    public boolean isTransactionCompleted(GlobalTransaction gtx) {
-      if (completedTransactionsInfo == null)
-         return false;
+      return completedTransactionsInfo != null && completedTransactionsInfo.isTransactionCompleted(gtx);
 
-      return completedTransactionsInfo.isTransactionCompleted(gtx);
+   }
+
+   /**
+    * @see #markTransactionCompleted(org.infinispan.transaction.xa.GlobalTransaction, boolean)
+    */
+   public CompletedTransactionStatus getCompletedTransactionStatus(GlobalTransaction gtx) {
+      if (completedTransactionsInfo == null)
+         return CompletedTransactionStatus.NOT_COMPLETED;
+
+      return completedTransactionsInfo.getTransactionStatus(gtx);
    }
 
    private class CompletedTransactionsInfo {
+      final EquivalentConcurrentHashMapV8<GlobalTransaction, CompletedTransactionInfo> completedTransactions;
+      // The highest transaction id previously cleared, one per originator
       final EquivalentConcurrentHashMapV8<Address, Long> nodeMaxPrunedTxIds;
-      final EquivalentConcurrentHashMapV8<GlobalTransaction, Long> completedTransactions;
+      // The highest transaction id previously cleared, with any originator
       volatile long globalMaxPrunedTxId;
 
       public CompletedTransactionsInfo() {
@@ -553,23 +654,22 @@ public class TransactionTable {
        * on a remote node. This might cause leaks, e.g. if the transaction is prepared, committed and prepared again.
        * Once marked as completed (because of commit or rollback) any further prepare received on that transaction are discarded.
        */
-      public void markTransactionCompleted(GlobalTransaction globalTx) {
-         log.tracef("Marking transaction %s as completed", globalTx);
-         completedTransactions.put(globalTx, timeService.time());
+      public void markTransactionCompleted(GlobalTransaction globalTx, boolean successful) {
+         if (trace) log.tracef("Marking transaction %s as completed", globalTx);
+         completedTransactions.put(globalTx, new CompletedTransactionInfo(timeService.time(), successful));
       }
 
       /**
-       * @see #markTransactionCompleted(org.infinispan.transaction.xa.GlobalTransaction)
+       * @see #markTransactionCompleted(GlobalTransaction, boolean)
        */
       public boolean isTransactionCompleted(GlobalTransaction gtx) {
-         if (completedTransactionsInfo == null)
-            return false;
-
          if (completedTransactions.containsKey(gtx))
             return true;
 
-         // Transaction ids are allocated in sequence, so any transaction with a smaller id must have already finished.
-         // Most likely because the prepare command timed out...
+         // Transaction ids are allocated in sequence, so any transaction with a smaller id must have been started
+         // before a transaction that was already removed from the completed transactions map because it was too old.
+         // We assume that the transaction was either committed, or it was rolled back (e.g. because the prepare
+         // RPC timed out.
          // Note: We must check the id *after* verifying that the tx doesn't exist in the map.
          if (gtx.getId() > globalMaxPrunedTxId)
             return false;
@@ -577,12 +677,38 @@ public class TransactionTable {
          return nodeMaxPrunedTxId != null && gtx.getId() <= nodeMaxPrunedTxId;
       }
 
+      public CompletedTransactionStatus getTransactionStatus(GlobalTransaction gtx) {
+         CompletedTransactionInfo completedTx = completedTransactions.get(gtx);
+         if (completedTx != null) {
+            return completedTx.successful ? CompletedTransactionStatus.COMMITTED : CompletedTransactionStatus.ABORTED;
+         }
+
+         // Transaction ids are allocated in sequence, so any transaction with a smaller id must have been started
+         // before a transaction that was already removed from the completed transactions map because it was too old.
+         // We assume that the transaction was either committed, or it was rolled back (e.g. because the prepare
+         // RPC timed out.
+         // Note: We must check the id *after* verifying that the tx doesn't exist in the map.
+         if (gtx.getId() > globalMaxPrunedTxId)
+            return CompletedTransactionStatus.NOT_COMPLETED;
+         Long nodeMaxPrunedTxId = nodeMaxPrunedTxIds.get(gtx.getAddress());
+         if (nodeMaxPrunedTxId == null) {
+            // We haven't removed any transaction for this node
+            return CompletedTransactionStatus.NOT_COMPLETED;
+         } else if (gtx.getId() > nodeMaxPrunedTxId) {
+            // We haven't removed this particular transaction yet
+            return CompletedTransactionStatus.NOT_COMPLETED;
+         } else {
+            // We already removed the status of this transaction from the completed transactions map
+            return CompletedTransactionStatus.EXPIRED;
+         }
+      }
+
       public void cleanupCompletedTransactions() {
          if (completedTransactions.isEmpty())
             return;
 
          try {
-            log.tracef("About to cleanup completed transaction. Initial size is %d", completedTransactions.size());
+            if (trace) log.tracef("About to cleanup completed transaction. Initial size is %d", completedTransactions.size());
             long beginning = timeService.time();
             long minCompleteTimestamp = timeService.time() - TimeUnit.MILLISECONDS.toNanos(configuration.transaction().completedTxTimeout());
             int removedEntries = 0;
@@ -596,11 +722,11 @@ public class TransactionTable {
             }
 
             // Remove stale completed transactions.
-            Iterator<Map.Entry<GlobalTransaction, Long>> txIterator = completedTransactions.entrySet().iterator();
+            Iterator<Map.Entry<GlobalTransaction, CompletedTransactionInfo>> txIterator = completedTransactions.entrySet().iterator();
             while (txIterator.hasNext()) {
-               Map.Entry<GlobalTransaction, Long> e = txIterator.next();
-               long completedTime = e.getValue();
-               if (completedTime < minCompleteTimestamp) {
+               Map.Entry<GlobalTransaction, CompletedTransactionInfo> e = txIterator.next();
+               CompletedTransactionInfo completedTx = e.getValue();
+               if (minCompleteTimestamp - completedTx.timestamp > 0) {
                   // Need to update lastPrunedTxId *before* removing the tx from the map
                   // Don't need atomic operations, there can't be more than one thread updating lastPrunedTxId.
                   final long txId = e.getKey().getId();
@@ -622,9 +748,10 @@ public class TransactionTable {
 
             long duration = timeService.timeDuration(beginning, TimeUnit.MILLISECONDS);
 
-            log.tracef("Finished cleaning up completed transactions. %d transactions were removed, total duration was %d millis, " +
-                        "current number of completed transactions is %d", removedEntries, duration,
-                  completedTransactions.size());
+            if (trace) log.tracef("Finished cleaning up completed transactions in %d millis, %d transactions were removed, " +
+                  "current number of completed transactions is %d",
+                  removedEntries, duration, completedTransactions.size());
+            if (trace) log.tracef("Last pruned transaction ids were updated: %d, %s", globalMaxPrunedTxId, nodeMaxPrunedTxIds);
          } catch (Exception e) {
             log.errorf(e, "Failed to cleanup completed transactions: %s", e.getMessage());
          }
@@ -634,15 +761,21 @@ public class TransactionTable {
          if (txId > globalMaxPrunedTxId) {
             globalMaxPrunedTxId = txId;
          }
-         nodeMaxPrunedTxIds.compute(address, new EquivalentConcurrentHashMapV8.BiFun<Address, Long, Long>() {
-            @Override
-            public Long apply(Address address, Long nodeMaxPrunedTxId) {
-               if (nodeMaxPrunedTxId != null && txId <= nodeMaxPrunedTxId) {
-                  return nodeMaxPrunedTxId;
-               }
-               return txId;
+         nodeMaxPrunedTxIds.compute(address, (a, nodeMaxPrunedTxId) -> {
+            if (nodeMaxPrunedTxId != null && txId <= nodeMaxPrunedTxId) {
+               return nodeMaxPrunedTxId;
             }
+            return txId;
          });
+      }
+   }
+   private static class CompletedTransactionInfo {
+      public final long timestamp;
+      public final boolean successful;
+
+      private CompletedTransactionInfo(long timestamp, boolean successful) {
+         this.timestamp = timestamp;
+         this.successful = successful;
       }
    }
 }

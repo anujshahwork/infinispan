@@ -24,21 +24,10 @@ public class NonIndexedEmbeddedCompatTest extends EmbeddedCompatTest {
       return builder;
    }
 
-   @Test(enabled = false)
+   @Test(expectedExceptions = IllegalArgumentException.class, expectedExceptionsMessageRegExp = "Indexing was not enabled on this cache.*")
    @Override
-   public void testEmbeddedQuery() throws Exception {
+   public void testEmbeddedLuceneQuery() throws Exception {
       // this would only make sense for Lucene based query
-   }
-
-   @Test(enabled = false, description = "See https://issues.jboss.org/browse/ISPN-4485")
-   @Override
-   public void testRemoteQuery() throws Exception {
-      super.testRemoteQuery();
-   }
-
-   @Test(enabled = false, description = "See https://issues.jboss.org/browse/ISPN-4485")
-   @Override
-   public void testRemoteQueryForEmbeddedEntry() throws Exception {
-      super.testRemoteQueryForEmbeddedEntry();
+      super.testEmbeddedLuceneQuery();
    }
 }

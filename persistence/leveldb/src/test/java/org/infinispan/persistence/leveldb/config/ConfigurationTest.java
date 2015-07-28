@@ -12,8 +12,8 @@ import org.infinispan.manager.DefaultCacheManager;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.test.AbstractInfinispanTest;
 import org.infinispan.test.TestingUtil;
-import org.testng.annotations.AfterTest;
-import org.testng.annotations.BeforeTest;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
 import java.io.IOException;
@@ -28,18 +28,11 @@ import static org.testng.AssertJUnit.assertTrue;
  */
 @Test(groups = "unit", testName = "persistence.leveldb.configuration.ConfigurationTest")
 public class ConfigurationTest extends AbstractInfinispanTest {
-   private String tmpDirectory;
-   private String tmpDataDirectory;
-   private String tmpExpiredDirectory;
+   private String tmpDirectory = TestingUtil.tmpDirectory(this.getClass());
+   private String tmpDataDirectory = tmpDirectory + "/data";
+   private String tmpExpiredDirectory = tmpDirectory + "/expired";
 
-   @BeforeTest
-   protected void setUpTempDir() {
-      tmpDirectory = TestingUtil.tmpDirectory(this.getClass());
-      tmpDataDirectory = tmpDirectory + "/data";
-      tmpExpiredDirectory = tmpDirectory + "/expired";
-   }
-
-   @AfterTest(alwaysRun = true)
+   @AfterClass(alwaysRun = true)
    protected void clearTempDir() {
       TestingUtil.recursiveFileRemove(tmpDirectory);
    }

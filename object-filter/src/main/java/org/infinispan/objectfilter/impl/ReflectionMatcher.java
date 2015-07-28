@@ -1,48 +1,83 @@
 package org.infinispan.objectfilter.impl;
 
+import org.hibernate.hql.ast.spi.EntityNamesResolver;
 import org.infinispan.objectfilter.impl.hql.FilterProcessingChain;
+import org.infinispan.objectfilter.impl.hql.ReflectionEntityNamesResolver;
 import org.infinispan.objectfilter.impl.hql.ReflectionPropertyHelper;
-import org.infinispan.objectfilter.impl.predicateindex.MatcherEvalContext;
 import org.infinispan.objectfilter.impl.predicateindex.ReflectionMatcherEvalContext;
 import org.infinispan.objectfilter.impl.util.ReflectionHelper;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * @author anistor@redhat.com
  * @since 7.0
  */
-public final class ReflectionMatcher extends BaseMatcher<Class<?>, String> {
+public class ReflectionMatcher extends BaseMatcher<Class<?>, ReflectionHelper.PropertyAccessor, String> {
 
-   private final ClassLoader classLoader;
+   private final EntityNamesResolver entityNamesResolver;
+
+   private final ReflectionPropertyHelper propertyHelper;
 
    public ReflectionMatcher(ClassLoader classLoader) {
-      this.classLoader = classLoader;
+      this(new ReflectionEntityNamesResolver(classLoader));
+   }
+
+   protected ReflectionMatcher(EntityNamesResolver entityNamesResolver) {
+      if (entityNamesResolver == null) {
+         throw new IllegalArgumentException("The EntityNamesResolver argument cannot be null");
+      }
+      this.entityNamesResolver = entityNamesResolver;
+      propertyHelper = new ReflectionPropertyHelper(entityNamesResolver);
    }
 
    @Override
-   protected MatcherEvalContext<String> startContext(Object instance, Set<String> knownTypes) {
-      String typeName = instance.getClass().getCanonicalName();
-      if (knownTypes.contains(typeName)) {
-         return new ReflectionMatcherEvalContext(instance);
+   protected ReflectionMatcherEvalContext startContext(Object userContext, Object instance, Object eventType) {
+      FilterRegistry<Class<?>, ReflectionHelper.PropertyAccessor, String> filterRegistry = getFilterRegistryForType(instance.getClass());
+      if (filterRegistry != null) {
+         ReflectionMatcherEvalContext context = createContext(userContext, instance, eventType);
+         context.initMultiFilterContext(filterRegistry);
+         return context;
+      }
+      return null;
+   }
+
+   @Override
+   protected ReflectionMatcherEvalContext startContext(Object userContext, Object instance, FilterSubscriptionImpl<Class<?>, ReflectionHelper.PropertyAccessor, String> filterSubscription, Object eventType) {
+      if (filterSubscription.getMetadataAdapter().getTypeMetadata() == instance.getClass()) {
+         return createContext(userContext, instance, eventType);
       } else {
          return null;
       }
    }
 
    @Override
-   protected FilterProcessingChain<Class<?>> createFilterProcessingChain(Map<String, Object> namedParameters) {
-      return FilterProcessingChain.build(new ReflectionPropertyHelper(classLoader), namedParameters);
+   protected ReflectionMatcherEvalContext createContext(Object userContext, Object instance, Object eventType) {
+      return new ReflectionMatcherEvalContext(userContext, instance, eventType);
    }
 
    @Override
-   protected FilterRegistry<String> createFilterRegistryForType(Class<?> clazz) {
-      return new FilterRegistry<String>(new MetadataAdapterImpl(clazz));
+   protected FilterProcessingChain<Class<?>> createFilterProcessingChain(Map<String, Object> namedParameters) {
+      return FilterProcessingChain.build(entityNamesResolver, propertyHelper, namedParameters);
    }
 
-   private static class MetadataAdapterImpl implements MetadataAdapter<ReflectionHelper.PropertyAccessor, String> {
+   @Override
+   protected FilterRegistry<Class<?>, ReflectionHelper.PropertyAccessor, String> getFilterRegistryForType(Class<?> entityType) {
+      return filtersByType.get(entityType);
+   }
+
+   @Override
+   public ReflectionPropertyHelper getPropertyHelper() {
+      return propertyHelper;
+   }
+
+   @Override
+   protected MetadataAdapter<Class<?>, ReflectionHelper.PropertyAccessor, String> createMetadataAdapter(Class<?> clazz) {
+      return new MetadataAdapterImpl(clazz);
+   }
+
+   private static class MetadataAdapterImpl implements MetadataAdapter<Class<?>, ReflectionHelper.PropertyAccessor, String> {
 
       private final Class<?> clazz;
 
@@ -63,21 +98,6 @@ public final class ReflectionMatcher extends BaseMatcher<Class<?>, String> {
       @Override
       public List<String> translatePropertyPath(List<String> path) {
          return path;
-      }
-
-      @Override
-      public boolean isRepeatedProperty(List<String> propertyPath) {
-         ReflectionHelper.PropertyAccessor a = ReflectionHelper.getAccessor(clazz, propertyPath.get(0));
-         if (a.isMultiple()) {
-            return true;
-         }
-         for (int i = 1; i < propertyPath.size(); i++) {
-            a = a.getAccessor(propertyPath.get(i));
-            if (a.isMultiple()) {
-               return true;
-            }
-         }
-         return false;
       }
 
       @Override

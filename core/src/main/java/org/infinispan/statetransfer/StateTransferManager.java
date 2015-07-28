@@ -53,9 +53,9 @@ public interface StateTransferManager {
     * If there is an state transfer happening at the moment, this method forwards the supplied
     * command to the nodes that are new owners of the data, in order to assure consistency.
     */
-   Map<Address, Response> forwardCommandIfNeeded(TopologyAffectedCommand command, Set<Object> affectedKeys, Address origin, boolean sync);
+   Map<Address, Response> forwardCommandIfNeeded(TopologyAffectedCommand command, Set<Object> affectedKeys, Address origin);
 
-   void notifyEndOfRebalance(int topologyId);
+   void notifyEndOfRebalance(int topologyId, int rebalanceId);
 
    /**
     * @return  true if this node has already received the first rebalance start

@@ -2,15 +2,15 @@ package org.infinispan.container;
 
 import java.util.Collection;
 import java.util.Set;
+import java.util.function.BiConsumer;
 
-import org.infinispan.filter.KeyFilter;
-import org.infinispan.metadata.Metadata;
-import org.infinispan.filter.KeyValueFilter;
-import org.infinispan.commons.util.concurrent.ParallelIterableMap;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.factories.annotations.Stop;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
+import org.infinispan.filter.KeyFilter;
+import org.infinispan.filter.KeyValueFilter;
+import org.infinispan.metadata.Metadata;
 
 /**
  * The main internal data structure which stores entries
@@ -48,8 +48,8 @@ public interface DataContainer<K, V> extends Iterable<InternalCacheEntry<K, V>> 
     * Puts an entry in the cache along with metadata adding information such lifespan of entry, max idle time, version
     * information...etc.
     * <p/>
-    * If the {@code key} does not exists previously, it must be activate by invoking {@link
-    * org.infinispan.eviction.ActivationManager#activate(Object)}.
+    * The {@code key} must be activate by invoking {@link org.infinispan.eviction.ActivationManager#onUpdate(Object,
+    * boolean)}.
     *
     * @param k key under which to store entry
     * @param v value to store
@@ -67,6 +67,9 @@ public interface DataContainer<K, V> extends Iterable<InternalCacheEntry<K, V>> 
 
    /**
     * Removes an entry from the cache
+    * <p/>
+    * The {@code key} must be activate by invoking {@link org.infinispan.eviction.ActivationManager#onRemove(Object,
+    * boolean)}.
     *
     * @param k key to remove
     * @return entry removed, or null if it didn't exist or had expired
@@ -131,8 +134,9 @@ public interface DataContainer<K, V> extends Iterable<InternalCacheEntry<K, V>> 
     * See {@link org.infinispan.container.DataContainer.ComputeAction#compute(Object,
     * org.infinispan.container.entries.InternalCacheEntry, InternalEntryFactory)}.
     * <p/>
-    * If the {@code key} does not exists previously, it must be activate by invoking {@link
-    * org.infinispan.eviction.ActivationManager#activate(Object)}.
+    * The {@code key} must be activate by invoking {@link org.infinispan.eviction.ActivationManager#onRemove(Object,
+    * boolean)} or {@link org.infinispan.eviction.ActivationManager#onUpdate(Object, boolean)} depending if the value
+    * returned by the {@link org.infinispan.container.DataContainer.ComputeAction} is null or not respectively.
     *
     * @param key    The key.
     * @param action The action that will compute the new value.
@@ -147,8 +151,7 @@ public interface DataContainer<K, V> extends Iterable<InternalCacheEntry<K, V>> 
     * @param action the specified action to execute on filtered key/values
     * @throws InterruptedException
     */
-   public void executeTask(KeyFilter<? super K> filter,
-         ParallelIterableMap.KeyValueAction<? super K, InternalCacheEntry<? super K, ? super V>> action) throws InterruptedException;
+   public void executeTask(final KeyFilter<? super K> filter, BiConsumer<? super K, InternalCacheEntry<K, V>> action) throws InterruptedException;
 
    /**
     * Executes task specified by the given action on the container key/values filtered using the specified keyvalue filter.
@@ -157,8 +160,7 @@ public interface DataContainer<K, V> extends Iterable<InternalCacheEntry<K, V>> 
     * @param action the specified action to execute on filtered key/values
     * @throws InterruptedException
     */
-   public void executeTask(KeyValueFilter<? super K, ? super V> filter,
-                           ParallelIterableMap.KeyValueAction<? super K, InternalCacheEntry<? super K, ? super V>> action) throws InterruptedException;
+   public void executeTask(KeyValueFilter<? super K, ? super V> filter, BiConsumer<? super K, InternalCacheEntry<K, V>> action) throws InterruptedException;
 
    public static interface ComputeAction<K, V> {
 

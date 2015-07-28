@@ -1,6 +1,7 @@
 package org.infinispan.manager;
 
 import org.infinispan.Cache;
+import org.infinispan.commons.api.Lifecycle;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.global.GlobalConfiguration;
@@ -12,6 +13,7 @@ import org.infinispan.lifecycle.ComponentStatus;
 import org.infinispan.notifications.Listenable;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.remoting.transport.Transport;
+import org.infinispan.stats.CacheContainerStats;
 
 import java.util.List;
 import java.util.Set;
@@ -22,7 +24,7 @@ import java.util.Set;
  * Constructing a <tt>EmbeddedCacheManager</tt> is done via one of its constructors, which optionally take in a {@link
  * org.infinispan.configuration.cache.Configuration} or a path or URL to a configuration XML file: see {@link org.infinispan.manager.DefaultCacheManager}.
  * <p/>
- * Lifecycle - <tt>EmbeddedCacheManager</tt>s have a lifecycle (it implements {@link org.infinispan.lifecycle.Lifecycle}) and
+ * Lifecycle - <tt>EmbeddedCacheManager</tt>s have a lifecycle (it implements {@link Lifecycle}) and
  * the default constructors also call {@link #start()}.  Overloaded versions of the constructors are available, that do
  * not start the <tt>CacheManager</tt>, although it must be kept in mind that <tt>CacheManager</tt>s need to be started
  * before they can be used to create <tt>Cache</tt> instances.
@@ -84,6 +86,15 @@ public interface EmbeddedCacheManager extends CacheContainer, Listenable {
     * @return a cloned configuration instance
     */
    Configuration defineConfiguration(String cacheName, String templateCacheName, Configuration configurationOverride);
+
+   /**
+    * Removes a configuration from the set of defined configurations. If the configuration is currently in use by one of the
+    * caches, an {@link IllegalStateException} is thrown. If the named configuration does not exist, nothing
+    * happens
+    *
+    * @param configurationName     the named configuration
+    */
+   void undefineConfiguration(String configurationName);
 
    /**
     * @return the name of the cluster.  Null if running in local mode.
@@ -224,4 +235,23 @@ public interface EmbeddedCacheManager extends CacheContainer, Listenable {
    Transport getTransport();
 
    GlobalComponentRegistry getGlobalComponentRegistry();
+
+   /**
+    * Add a dependency between two caches. The cache manager will make sure that
+    * a cache is stopped before any of its dependencies
+    *
+    * @param from cache name
+    * @param to cache name
+    * @since 7.0
+    */
+   void addCacheDependency(String from, String to);
+
+   /**
+    * Returns statistics for this cache manager
+    *
+    * since 7.1
+    * @return statistics for this cache manager
+    */
+   CacheContainerStats getStats();
+
 }

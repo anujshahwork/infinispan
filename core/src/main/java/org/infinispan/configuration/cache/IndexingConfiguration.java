@@ -1,18 +1,32 @@
 package org.infinispan.configuration.cache;
 
 import org.infinispan.commons.configuration.AbstractTypedPropertiesConfiguration;
+import org.infinispan.commons.configuration.attributes.Attribute;
+import org.infinispan.commons.configuration.attributes.AttributeDefinition;
+import org.infinispan.commons.configuration.attributes.AttributeSet;
 import org.infinispan.commons.util.TypedProperties;
 
 /**
  * Configures indexing of entries in the cache for searching.
  */
 public class IndexingConfiguration extends AbstractTypedPropertiesConfiguration {
+   public static final AttributeDefinition<Index> INDEX = AttributeDefinition.builder("index", Index.NONE).immutable().build();
+   public static final AttributeDefinition<Boolean> AUTO_CONFIG = AttributeDefinition.builder("autoConfig", false).immutable().build();
 
-   private final Index index;
+   public static AttributeSet attributeDefinitionSet() {
+      return new AttributeSet(IndexingConfiguration.class, AbstractTypedPropertiesConfiguration.attributeSet(), INDEX, AUTO_CONFIG);
+   }
 
-   IndexingConfiguration(TypedProperties properties, Index index) {
-      super(properties);
-      this.index = index;
+   private static final String DIRECTORY_PROVIDER_KEY = "directory_provider";
+   private static final String RAM_DIRECTORY_PROVIDER = "ram";
+
+   private final Attribute<Index> index;
+   private final Attribute<Boolean> autoConfig;
+
+   public IndexingConfiguration(AttributeSet attributes) {
+      super(attributes);
+      index = attributes.attribute(INDEX);
+      autoConfig = attributes.attribute(AUTO_CONFIG);
    }
 
    /**
@@ -22,7 +36,7 @@ public class IndexingConfiguration extends AbstractTypedPropertiesConfiguration 
     */
    @Deprecated
    public boolean enabled() {
-      return index.isEnabled();
+      return index().isEnabled();
    }
 
    /**
@@ -33,7 +47,7 @@ public class IndexingConfiguration extends AbstractTypedPropertiesConfiguration 
     */
    @Deprecated
    public boolean indexLocalOnly() {
-      return index.isLocalOnly();
+      return index().isLocalOnly();
    }
 
    /**
@@ -42,7 +56,7 @@ public class IndexingConfiguration extends AbstractTypedPropertiesConfiguration 
     * complete and up to date documentation about available properties refer to the Hibernate Search
     * reference of the version you're using with Infinispan Query.
     * </p>
-    * 
+    *
     * @see <a
     *      href="http://docs.jboss.org/hibernate/stable/search/reference/en-US/html_single/">Hibernate
     *      Search</a>
@@ -57,32 +71,45 @@ public class IndexingConfiguration extends AbstractTypedPropertiesConfiguration 
     * Returns the indexing mode of this cache.
     */
    public Index index() {
-      return index;
+      return index.get();
+   }
+
+   /**
+    * Determines if autoconfig is enabled for this IndexingConfiguration
+    */
+   public boolean autoConfig() {
+      return autoConfig.get();
+   }
+
+   public AttributeSet attributes() {
+      return attributes;
+   }
+
+   /**
+    * Check if the indexes can be shared. Currently only "ram" based indexes don't allow any sort of
+    * sharing
+    *
+    * @return false if the index is ram only and thus not shared
+    */
+   public boolean indexShareable() {
+      TypedProperties properties = properties();
+      boolean hasRamDirectoryProvider = false;
+      for (Object objKey : properties.keySet()) {
+         String key = (String) objKey;
+         if (key.endsWith(DIRECTORY_PROVIDER_KEY)) {
+            if (properties.get(key).equals(RAM_DIRECTORY_PROVIDER)) {
+               hasRamDirectoryProvider = true;
+            } else {
+               return true;
+            }
+         }
+      }
+      return !hasRamDirectoryProvider;
    }
 
    @Override
    public String toString() {
-      return "IndexingConfiguration{" +
-            "index=" + index +
-            ", properties=" + properties() +
-            '}';
-   }
-
-   @Override
-   public boolean equals(Object o) {
-      if (this == o) return true;
-      if (o == null || getClass() != o.getClass()) return false;
-
-      IndexingConfiguration that = (IndexingConfiguration) o;
-
-      if (index != that.index) return false;
-
-      return true;
-   }
-
-   @Override
-   public int hashCode() {
-      return 31 * index.hashCode();
+      return "IndexingConfiguration [attributes=" + attributes + "]";
    }
 
 }

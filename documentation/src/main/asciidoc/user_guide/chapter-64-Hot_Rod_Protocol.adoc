@@ -8,6 +8,9 @@ the custom TCP client/server Hot Rod protocol.
 * link:$$#_hot_rod_protocol_1_3$$[Hot Rod Protocol 1.3]
 * link:$$#_hot_rod_protocol_1_3$$[Hot Rod Protocol 1.4]
 * link:$$#_hot_rod_protocol_2_0$$[Hot Rod Protocol 2.0]
+* link:$$#_hot_rod_protocol_2_1$$[Hot Rod Protocol 2.1]
+* link:$$#_hot_rod_protocol_2_2$$[Hot Rod Protocol 2.2]
+* link:$$#_hot_rod_protocol_2_3$$[Hot Rod Protocol 2.3]
 
 ===== Hot Rod Protocol 1.0
 
@@ -45,6 +48,11 @@ byte, values from 128 to 16,383 are stored in two bytes, and so on:
 | `...`       |                 |                   |
 |==============================================================================
 +
+* signed vInt: The vInt above is also able to encode negative values, but will
+always use the maximum size (5 bytes) no matter how small the endoded value is.
+In order to have a small payload for negative values too, signed vInts uses ZigZag
+encoding on top of the vInt encoding.
+More details link:$$http://developers.google.com/protocol-buffers/docs/encoding#types$$[here]
 
 * vLong : Refers to unsigned variable length long values similar to vInt but
 applied to longer values. They're between 1 and 9 bytes long.
@@ -80,6 +88,8 @@ In this particular case, this is +10+
 +0x15+ = stats +
 +0x17+ = ping +
 +0x19+ = bulkGet +
++0x2D+ = putAll +
++0x2F+ = getAll +
 | Cache Name Length   | vInt       | Length of cache name. If the passed
 length is +0+ (followed by no cache name), the operation will interact with
 the default cache.
@@ -141,6 +151,8 @@ for which the response is sent.
 +0x16+ = stats +
 +0x18+ = ping +
 +0x1A+ = bulkGet +
++0x2E+ = putAll +
++0x30+ = getAll +
 +0x50+ = error +
 | Status                 | 1 byte     | Status of the response, possible values: +
 +0x00+ = No error +
@@ -431,8 +443,8 @@ Replace response:
 +0x00+ = success, if stored +
 +0x01+ = if store did not happen because key does not exist +
 | Previous value Length  | vInt       | If force return previous value flag was
-sent in the request and the key was replaced, the length of the previous value
-will be returned. If the key does not exist, value length would be 0.
+sent in the request, the length of the previous value will be returned.
+If the key does not exist, value length would be 0.
 If no flag was sent, no value length would be present.
 | Previous value         | byte array | If force return previous value flag was
 sent in the request and the key was replaced, previous value.
@@ -448,6 +460,12 @@ PutIfAbsent response:
 | Response status     | 1 byte     |
 +0x00+ = success, if stored +
 +0x01+ = if store did not happen because key was present +
+| Previous value Length  | vInt       | If force return previous value flag was
+sent in the request, the length of the previous value will be returned.
+If the key does not exist, value length would be 0.
+If no flag was sent, no value length would be present.
+| Previous value         | byte array | If force return previous value flag was
+sent in the request and the key was replaced, previous value.
 |==============================================================================
 
 .ReplaceIfUnmodified
@@ -488,8 +506,8 @@ Response:
 +0x01+ = if replace did not happen because key had been modified +
 +0x02+ = if not replaced because if key does not exist
 | Previous value Length  | vInt       | If force return previous value flag was
-sent in the request and the key was replaced, the length of the previous value
-will be returned. If the key does not exist, value length would be 0.
+sent in the request, the length of the previous value will be returned.
+If the key does not exist, value length would be 0.
 If no flag was sent, no value length would be present.
 | Previous value         | byte array | If force return previous value flag was
 sent in the request and the key was replaced, previous value.
@@ -525,8 +543,8 @@ Response:
 +0x01+ = if remove did not happen because key had been modified +
 +0x02+ = if not removed because key does not exist +
 | Previous value Length  | vInt       | If force return previous value flag was
-sent in the request and the key was removed, the length of the previous value
-will be returned. If the key does not exist, value length would be 0.
+sent in the request, the length of the previous value will be returned.
+If the key does not exist, value length would be 0.
 If no flag was sent, no value length would be present.
 | Previous value         | byte array | If force return previous value flag was
 sent in the request and the key was removed, previous value.
@@ -554,6 +572,89 @@ Response:
 | Response status     | 1 byte     |
 +0x00+ = success, if cleared +
 |==============================================================================
+
+.PutAll
+
+Bulk operation to put all key value entries into the cache at the same time.
+
+Request:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+
+| Header              | variable   | Request header
+| Lifespan            | vInt       | Number of seconds that provided entries
+are allowed to live. If number of seconds is bigger than 30 days,
+this number of seconds is treated as UNIX time and so, represents the number
+of seconds since 1/1/1970. If set to 0, lifespan is unlimited.
+| Max Idle            | vInt       | Number of seconds that each entry can be
+idle before it's evicted from the cache. If 0, no max idle time.
+| Entry count         | vInt       | How many entries are being inserted
+| Key 1 Length        | vInt       | Length of key
+| Key 1               | byte array | Retrieved key
+| Value 1 Length      | vInt       | Length of value
+| Value 1             | byte array | Retrieved value
+| Key 2 Length        | vInt       |
+| Key 2               | byte array |
+| Value 2 Length      | vInt       |
+| Value 2             | byte array |
+|... continues until entry count is reached||
+
+|==============================================================================
+
+Response:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+
+| Header              | variable   | Response header
+| Response status     | 1 byte     |
++0x00+ = success, if all put +
+|==============================================================================
+
+.GetAll
+
+Bulk operation to get all entries that map to a given set of keys.
+
+Request:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+
+| Header              | variable   | Request header
+| Key count           | vInt       | How many keys to find entries for
+| Key 1 Length        | vInt       | Length of key
+| Key 1               | byte array | Retrieved key
+| Key 2 Length        | vInt       |
+| Key 2               | byte array |
+|... continues until key count is reached||
+
+|==============================================================================
+
+Response:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+
+| Header              | variable   | Response header
+| Response status     | 1 byte     |
+| Entry count         | vInt       | How many entries are being returned
+| Key 1 Length        | vInt       | Length of key
+| Key 1               | byte array | Retrieved key
+| Value 1 Length      | vInt       | Length of value
+| Value 1             | byte array | Retrieved value
+| Key 2 Length        | vInt       |
+| Key 2               | byte array |
+| Value 2 Length      | vInt       |
+| Value 2             | byte array |
+|... continues until entry count is reached ||
++0x00+ = success, if the get returned sucessfully +
+|==============================================================================
+
 
 .Stats
 
@@ -986,7 +1087,7 @@ Response format:
 |==============================================================================
 
 As of Infinispan 6.0, the query and response objects are specified by the protobuf message types 'org.infinispan.client.hotrod.impl.query.QueryRequest' and 'org.infinispan.client.hotrod.impl.query.QueryResponse'
-respectively defined in link:$$https://github.com/infinispan/infinispan/blob/master/remote-query/remote-query-client/src/main/resources/query.proto$$[remote-query/remote-query-client/src/main/resources/query.proto].
+defined in link:$$https://github.com/infinispan/infinispan/blob/master/remote-query/remote-query-client/src/main/resources/org/infinispan/query/remote/client/query.proto$$[remote-query/remote-query-client/src/main/resources/org/infinispan/query/remote/client/query.proto].
 These definitions could change in future Infinispan versions, but as long as these evolutions will be kept backward
 compatible (according to the rules defined link:$$https://developers.google.com/protocol-buffers/docs/proto#updating$$[here]) no new Hot Rod
 protocol version will be introduced to accommodate this.
@@ -995,11 +1096,6 @@ protocol version will be introduced to accommodate this.
 
 .Infinispan versions
 TIP: This version of the protocol is implemented since Infinispan 7.0.0.Final.
-
-TIP: Starting with this protocol version, the previous limitation of having to
-interact with defined cache names has been dropped. From now on, clients can
-interact with caches, whose names, are not necessarily defined in the cache
-configuration.
 
 ====== Request Header
 
@@ -1011,9 +1107,10 @@ be upped, with the necessary changes in the request header.
 
 The `version` field in the header is updated to `20`.
 
-One new flag has been added to:
+Two new flags have been added:
 
 * +0x0008+  = operation skips loading from configured cache loader.
+* +0x0010+  = operation skips indexing. Only relevant when the query module is enabled for the cache
 
 The following new request operation codes have been added:
 
@@ -1021,6 +1118,7 @@ The following new request operation codes have been added:
 * +0x23+ = auth request
 * +0x25+ = add client remote event listener request
 * +0x27+ = remove client remote event listener request
+* +0x29+ = size request
 
 ====== Response Header
 
@@ -1030,6 +1128,48 @@ The following new response operation codes have been added:
 * +0x24+ = auth mech response
 * +0x26+ = add client remote event listener response
 * +0x28+ = remove client remote event listener response
+* +0x2A+ = size response
+
+Two new error codes have also been added to enable clients more intelligent
+decisions, particularly when it comes to fail-over logic:
+
+* +0x87+ = Node suspected. When a client receives this error as response,
+it means that the node that responded had an issue sending an operation to a
+third node, which was suspected. Generally, requests that return this error
+should be failed-over to other nodes.
+* +0x88+ = Illegal lifecycle state. When a client receives this error as response,
+it means that the server-side cache or cache manager are not available
+for requests because either stopped, they're stopping or similar situation.
+Generally, requests that return this error should be failed-over to other nodes.
+
+Some adjustments have been made to the responses for the following commands in
+order to better handle response decoding without the need to keep track of the
+information sent. More precisely, the way previous values are parsed has changed
+so that the status of the command response provides clues on whether the previous
+value follows or not. More precisely:
+
+* Put response returns `0x03` status code when put was successful
+and previous value follows.
+* PutIfAbsent response returns `0x04` status code only when the putIfAbsent
+operation failed because the key was present and its value follows in the
+response. If the putIfAbsent worked, there would have not been a previous value,
+and hence it does not make sense returning anything extra.
+* Replace response returns `0x03` status code only when replace happened and the
+previous or replaced value follows in the response. If the replace did not happen,
+it means that the cache entry was not present, and hence there's no previous value
+that can be returned.
+* ReplaceIfUnmodified returns `0x03` status code only when replace happened and
+the previous or replaced value follows in the response.
+* ReplaceIfUnmodified returns `0x04` status code only when replace did not happen
+as a result of the key being modified, and the modified value follows in the response.
+* Remove returns `0x03` status code when the remove happened and the previous or
+removed value follows in the response. If the remove did not occur as a result
+of the key not being present, it does not make sense sending any previous value
+information.
+* RemoveIfUnmodified returns `0x03` status code only when remove happened and
+the previous or replaced value follows in the response.
+* RemoveIfUnmodified returns `0x04` status code only when remove did not happen
+as a result of the key being modified, and the modified value follows in the response.
 
 ===== Distribution-Aware Client Topology Change Header
 
@@ -1147,6 +1287,12 @@ Request format:
 | Field Name          | Size       | Value
 | Header | variable | Request header
 | Listener ID   | byte array   | Listener identifier
+| Include state | byte         | When this byte is set to `1`, cached state is
+sent back to remote clients when either adding a cache listener for the first
+time, or when the node where a remote listener is registered changes in a clustered
+environment. When enabled, state is sent back as cache entry created events to
+the clients. If set to `0`, no state is sent back to the client when adding a listener,
+nor it gets state when the node where the listener is registered changes.
 | Key/value filter factory name | string | Optional name of the key/value filter
 factory to be used with this listener. The factory is used to create key/value
 filter instances which allow events to be filtered directly in the Hot Rod
@@ -1210,6 +1356,56 @@ Response format:
 | Header | variable | Response header
 |==============================================================================
 
+.Size
+
+Request format:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+| Header | variable | Request header
+|==============================================================================
+
+Response format:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+| Header | variable | Response header
+| Size | vInt | Size of the remote cache, which is calculated globally in the
+clustered set ups, and if present, takes cache store contents into account as
+well.
+|==============================================================================
+
+.Exec
+
+Request format:
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+| Header | variable | Request header
+| Script | string | Name of the script to execute
+| Parameter Count | vInt | The number of parameters
+| Parameter 1 Name | string | The name of the first parameter
+| Parameter 1 Length | vInt | The length of the first parameter
+| Parameter 1 Value | byte array | The value of the first parameter
+| ...
+|==============================================================================
+
+Response format:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+
+| Header              | variable   | Response header
+| Response status     | 1 byte     |
++0x00+ = success, if execution completed successfully +
++0x85+ = server error +
+| Value Length        | vInt       | If success, length of return value
+| Value               | byte array | If success, the result of the execution
+|==============================================================================
+
 
 ====== Remote Events
 
@@ -1244,6 +1440,8 @@ this marker will always have `0` value for events.
 | Header | variable | Event header with `0x60` operation code
 | Listener ID | byte array | Listener for which this event is directed
 | Custom marker | byte | Custom event marker. For created events, this is `0`.
+| Command retried | byte | Marker for events that are result of retried commands.
+If command is retried, it returns `1`, otherwise `0`.
 | Key | byte array | Created key
 | Version | long | Version of the created entry. This version information can
 be used to make conditional operations on this cache entry.
@@ -1256,6 +1454,8 @@ be used to make conditional operations on this cache entry.
 | Header | variable | Event header with `0x61` operation code
 | Listener ID | byte array | Listener for which this event is directed
 | Custom marker | byte | Custom event marker. For created events, this is `0`.
+| Command retried | byte | Marker for events that are result of retried commands.
+If command is retried, it returns `1`, otherwise `0`.
 | Key | byte array | Modified key
 | Version | long | Version of the modified entry. This version information can
 be used to make conditional operations on this cache entry.
@@ -1268,6 +1468,8 @@ be used to make conditional operations on this cache entry.
 | Header | variable | Event header with `0x62` operation code
 | Listener ID | byte array | Listener for which this event is directed
 | Custom marker | byte | Custom event marker. For created events, this is `0`.
+| Command retried | byte | Marker for events that are result of retried commands.
+If command is retried, it returns `1`, otherwise `0`.
 | Key | byte array | Removed key
 |==============================================================================
 
@@ -1282,6 +1484,180 @@ be used to make conditional operations on this cache entry.
 converter implementation logic.
 |==============================================================================
 
+===== Hot Rod Protocol 2.1
+
+.Infinispan versions
+TIP: This version of the protocol is implemented since Infinispan 7.1.0.Final.
+
+====== Request Header
+
+The `version` field in the header is updated to `21`.
+
+====== Operations
+
+.Add client listener for remote events
+
+An extra byte parameter is added at the end which indicates whether the client
+prefers client listener to work with raw binary data for filter/converter
+callbacks. If using raw data, its value is `1` otherwise `0`.
+
+Request format:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+| Header | variable | Request header
+| Listener ID   | byte array   | ...
+| Include state | byte         | ...
+| Key/value filter factory parameter count | byte | ...
+| ... | |
+| Converter factory name | string | ...
+| Converter factory parameter count | byte | ...
+| ... | |
+| Use raw data | byte | If filter/converter parameters should be raw binary,
+then `1`, otherwise `0`.
+|==============================================================================
+
+.Custom event
+
+Starting with Hot Rod 2.1, custom events can return raw data that the Hot Rod
+client should not try to unmarshall before passing it on to the user. The way
+this is transmitted to the Hot Rod client is by sending `2` as the custom
+event marker. So, the format of the custom event remains like this:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+| Header | variable | Event header with event specific operation code
+| Listener ID | byte array | Listener for which this event is directed
+| Custom marker | byte | Custom event marker. For custom events whose event
+data needs to be unmarshalled before returning to user the value is `1`. For
+custom events that need to return the event data as-is to the user, the value
+is `2`.
+| Event data | byte array | Custom event data. If the custom marker is `1`,
+the bytes represent the marshalled version of the instance returned by the
+converter. If custom marker is `2`, it represents the byte array, as returned
+by the converter.
+|==============================================================================
+
+===== Hot Rod Protocol 2.2
+
+.Infinispan versions
+TIP: This version of the protocol is implemented since Infinispan 8.0
+
+
+Added support for different time units.
+
+====== Operations
+
+.Put/PutAll/PutIfAbsent/Replace/ReplaceIfUnmodified
+
+Common request format:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+
+| TimeUnits           | Byte        | Time units of lifespan (first 4 bits) and maxIdle (last 4 bits). Special units
+DEFAULT and INFINITE can be used for default server expiration and no expiration respectively. Possible values: +
++0x00+ = SECONDS +
++0x01+ = MILLISECONDS +
++0x02+ = NANOSECONDS +
++0x03+ = MICROSECONDS +
++0x04+ = MINUTES +
++0x05+ = HOURS +
++0x06+ = DAYS +
++0x07+ = DEFAULT +
++0x08+ = INFINITE +
+| Lifespan            | vLong       | Duration which the entry is allowed to life. Only sent when time unit is not DEFAULT or INFINITE
+| Max Idle            | vLong       | Duration that each entry can be idle before it's evicted from the cache. Only sent when time unit is not DEFAULT or INFINITE
+|==============================================================================
+
+===== Hot Rod Protocol 2.3
+
+.Infinispan versions
+TIP: This version of the protocol is implemented since Infinispan 8.0
+
+====== Operations
+
+.Iteration Start
+
+Request format:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+| Segments size       | signed vInt|  Size of the bitset encoding of the segments ids to iterate on. The size is the maximum segment id rounded to nearest multiple of 8. +
+A value -1 indicates no segment filtering is to be done
+| Segments            | byte array | (Optional) Contains the segments ids bitset encoded, where each bit with value 1 represents a segment in the set. Byte order is little-endian. +
+Example: segments [1,3,12,13] would result in the following encoding: +
+00001010 00110000 +
+size: 16 bits +
+first byte: represents segments from 0 to 7, from which 1 and 3 are set +
+second byte: represents segments from 8 to 15, from which 12 and 13 are set +
+More details in the java.util.BitSet implementation. Segments will be sent if the previous field is not negative
+| FilterConverter size| signed vInt | The size of the String representing a KeyValueFilterConverter factory name deployed on the server, or -1 if no filter will be used
+| FilterConverter     | UTF-8 byte array | (Optional) KeyValueFilterConverter factory name deployed on the server. Present if previous field is not negative
+| BatchSize           | vInt        | number of entries to transfers from the server at one go
+|==============================================================================
+
+Response format:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+| IterationId         | String     | The unique id of the iteration
+|==============================================================================
+
+
+.Iteration Next
+
+Request format:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+| IterationId         | String     | The unique id of the iteration
+|==============================================================================
+
+Response format:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name               | Size       | Value
+| Finished segments size   | vInt       | size of the bitset representing segments that were finished iterating
+| Finished segments        | byte array | bitset encoding of the segments that were finished iterating
+| Entry count              | vInt       | How many entries are being returned
+| Key 1 Length             | vInt       | Length of key
+| Key 1                    | byte array | Retrieved key
+| Value 1 Length           | vInt       | Length of value
+| Value 1                  | byte array | Retrieved value
+| Key 2 Length             | vInt       |
+| Key 2                    | byte array |
+| Value 2 Length           | vInt       |
+| Value 2                  | byte array |
+|... continues until entry count is reached ||
+|==============================================================================
+
+.Iteration End
+
+Request format:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+| IterationId         | String     | The unique id of the iteration
+|==============================================================================
+
+Response format:
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Header              | variable   | Response header
+| Response status     | 1 byte     |
++0x00+ = success, if execution completed successfully +
++0x05+ = for non existent IterationId  +
+|==============================================================================
 
 ==== Hot Rod Hash Functions
 Infinispan makes use of a consistent hash function to place nodes on a hash

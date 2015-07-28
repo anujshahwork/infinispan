@@ -1,21 +1,25 @@
 package org.infinispan.configuration;
 
-import org.apache.log4j.AppenderSkeleton;
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
-import org.apache.log4j.spi.LoggingEvent;
+import java.io.File;
+import java.io.FilenameFilter;
+
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.LoggerContext;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Configuration;
+import org.apache.logging.log4j.core.layout.PatternLayout;
 import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.test.AbstractInfinispanTest;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
-
-import java.io.File;
-import java.io.FilenameFilter;
-import java.util.Arrays;
 
 /**
  * Tests the correctness of the supplied configuration files.
@@ -23,40 +27,42 @@ import java.util.Arrays;
  * @author Mircea.Markus@jboss.com
  */
 @Test(groups = "functional", testName = "config.SampleConfigFilesCorrectnessTest")
-public class SampleConfigFilesCorrectnessTest {
+public class SampleConfigFilesCorrectnessTest extends AbstractInfinispanTest {
    private static final Log log = LogFactory.getLog(SampleConfigFilesCorrectnessTest.class);
 
-   public String configFolder;
    public String configRoot;
    private InMemoryAppender appender;
-   private Level oldLevel;
+
+   @BeforeClass
+   public void installInMemoryAppender() {
+      final LoggerContext ctx = (LoggerContext) LogManager.getContext(false);
+      final Configuration config = ctx.getConfiguration();
+      config.addAppender(new InMemoryAppender());
+   }
 
    @BeforeMethod
    public void setUpTest() {
-      Logger log4jLogger = Logger.getRootLogger();
-      oldLevel = log4jLogger.getLevel();
-      log4jLogger.setLevel(Level.WARN);
-      appender = new InMemoryAppender();
-      log4jLogger.addAppender(appender);
-      configFolder = getConfigFolder();
-      configRoot = "src" + File.separator + "main" + File.separator
-            + "release" + File.separator + "etc" + File.separator + configFolder;
+      final LoggerContext ctx = (LoggerContext) LogManager.getContext(false);
+      final Configuration config = ctx.getConfiguration();
+      appender = (InMemoryAppender) config.getAppender("InMemory");
+      appender.enable(Thread.currentThread());
+      ctx.updateLoggers();
+      configRoot = "../distribution/src/main/release/common/configs/config-samples".replace('/', File.separatorChar);
    }
 
    @AfterMethod
    public void tearDownTest() {
-      Logger log4jLogger = Logger.getRootLogger();
-      log4jLogger.setLevel(oldLevel);
-      log4jLogger.removeAppender(appender);
-      appender.close();
+      appender.disable();
+
    }
 
 
    public void testConfigWarnings() throws Exception {
       for (String aConfFile : getConfigFileNames()) {
          log.tracef("Analysing %s", aConfFile);
-         EmbeddedCacheManager dcm = TestCacheManagerFactory.fromXml(getRootFolder() + File.separator + aConfFile);
+         EmbeddedCacheManager dcm = null;
          try {
+            dcm = TestCacheManagerFactory.fromXml(getRootFolder() + File.separator + aConfFile, false, true);
             dcm.getCache();
             assert !appender.isFoundUnknownWarning() : String.format(
                   "Unknown warning discovered in file %s: %s",
@@ -65,6 +71,8 @@ public class SampleConfigFilesCorrectnessTest {
                dcm.getCache(cacheName);
                assert !appender.isFoundUnknownWarning();
             }
+         } catch (Exception e) {
+            throw new Exception("Could not parse '"+aConfFile+"'", e);
          } finally {
             TestingUtil.killCacheManagers(dcm);
          }
@@ -77,6 +85,7 @@ public class SampleConfigFilesCorrectnessTest {
          log.tracef("file.getAbsolutePath() = %s");
       }
       return file.list(new FilenameFilter() {
+         @Override
          public boolean accept(File dir, String name) {
             // Exclude JGroups config files as well as all EC2 configurations (as these won't have proper credentials set)
             return name.endsWith(".xml") && !name.startsWith("jgroups") && !name.contains("ec2");
@@ -94,11 +103,15 @@ public class SampleConfigFilesCorrectnessTest {
       return file;
    }
 
-   public String getConfigFolder() {
-      return "config-samples";
-   }
+   private static class InMemoryAppender extends AbstractAppender {
 
-   private static class InMemoryAppender extends AppenderSkeleton {
+      /** The serialVersionUID */
+      private static final long serialVersionUID = 1L;
+
+      protected InMemoryAppender() {
+         super("InMemory", null, PatternLayout.createDefaultLayout());
+      }
+
       String[] TOLERABLE_WARNINGS =
             {
                   "Falling back to DummyTransactionManager from Infinispan",
@@ -110,40 +123,25 @@ public class SampleConfigFilesCorrectnessTest {
                   "S3_PING could not be substituted",
                   "This might lead to performance problems. Please set your", // TCP and UDP send/recv buffer warnings
                   "stateRetrieval's 'alwaysProvideInMemoryState' attribute is no longer in use",
-                  "unable to find an address other than loopback for IP version IPv4"
+                  "unable to find an address other than loopback for IP version IPv4",
+                  "Partition handling doesn't work for replicated caches, it will be ignored"
             };
-      String unknownWarning;
+      String unknownWarning = null;
 
       /**
-       * As this test runs in parallel with other tests tha also log information, we should disregard other possible
+       * As this test runs in parallel with other tests that also log information, we should disregard other possible
        * warnings from other threads and only consider warnings issues within this test class's test.
        *
        * @see #isExpectedThread()
        */
-      private Thread loggerThread = Thread.currentThread();
+      private Thread loggerThread = null;
 
-      protected void append(LoggingEvent event) {
-         if (event.getLevel().equals(Level.WARN) && isExpectedThread()) {
-            boolean skipPrinting = false;
-            for (String knownWarn : TOLERABLE_WARNINGS) {
-               if (event.getMessage().toString().indexOf(knownWarn) >= 0)
-                  skipPrinting = true;
-            }
-
-            if (!skipPrinting) {
-               unknownWarning = event.getMessage().toString();
-               log.tracef("InMemoryAppender: %s", event.getMessage().toString());
-               log.tracef("TOLERABLE_WARNINGS: %s", Arrays.toString(TOLERABLE_WARNINGS));
-            }
-         }
+      public void disable() {
+         loggerThread = null;
       }
 
-      public boolean requiresLayout() {
-         return false;
-      }
-
-      public void close() {
-         //do nothing
+      public void enable(Thread thread) {
+         loggerThread = thread;
       }
 
       public boolean isFoundUnknownWarning() {
@@ -155,7 +153,22 @@ public class SampleConfigFilesCorrectnessTest {
       }
 
       public boolean isExpectedThread() {
-         return loggerThread.equals(Thread.currentThread());
+         return loggerThread != null && loggerThread.equals(Thread.currentThread());
+      }
+
+      @Override
+      public void append(LogEvent event) {
+         if (event.getLevel().equals(Level.WARN) && isExpectedThread()) {
+            boolean skipPrinting = false;
+            for (String knownWarn : TOLERABLE_WARNINGS) {
+               if (event.getMessage().toString().indexOf(knownWarn) >= 0)
+                  skipPrinting = true;
+            }
+
+            if (!skipPrinting) {
+               unknownWarning = event.getMessage().toString();
+            }
+         }
       }
    }
 }

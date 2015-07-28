@@ -1,12 +1,14 @@
 package org.infinispan.query.remote;
 
 import org.infinispan.factories.components.ModuleMetadataFileFinder;
+import org.kohsuke.MetaInfServices;
 
 /**
  * @author anistor@redhat.com
  * @since 6.0
  */
-public class RemoteQueryMetadataFileFinder implements ModuleMetadataFileFinder {
+@MetaInfServices
+public final class RemoteQueryMetadataFileFinder implements ModuleMetadataFileFinder {
 
    @Override
    public String getMetadataFilename() {

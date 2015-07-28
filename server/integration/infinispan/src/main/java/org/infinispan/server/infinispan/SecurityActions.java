@@ -13,8 +13,10 @@ import org.infinispan.cli.interpreter.Interpreter;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.interceptors.base.CommandInterceptor;
+import org.infinispan.jmx.JmxStatisticsExposer;
 import org.infinispan.lifecycle.ComponentStatus;
 import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.query.SearchManager;
 import org.infinispan.remoting.rpc.RpcManager;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.security.Security;
@@ -22,14 +24,27 @@ import org.infinispan.security.actions.GetCacheComponentRegistryAction;
 import org.infinispan.security.actions.GetCacheInterceptorChainAction;
 import org.infinispan.security.actions.GetCacheLockManagerAction;
 import org.infinispan.security.actions.GetCacheManagerAddress;
+import org.infinispan.security.actions.GetCacheManagerClusterAvailabilityAction;
 import org.infinispan.security.actions.GetCacheManagerClusterNameAction;
 import org.infinispan.security.actions.GetCacheManagerCoordinatorAddress;
 import org.infinispan.security.actions.GetCacheManagerIsCoordinatorAction;
 import org.infinispan.security.actions.GetCacheManagerStatusAction;
 import org.infinispan.security.actions.GetCacheRpcManagerAction;
 import org.infinispan.security.actions.GetCacheStatusAction;
+import org.infinispan.server.infinispan.actions.ClearCacheAction;
+import org.infinispan.server.infinispan.actions.GetCacheVersionAction;
+import org.infinispan.server.infinispan.actions.GetCreatedCacheCountAction;
+import org.infinispan.server.infinispan.actions.GetDefinedCacheCountAction;
+import org.infinispan.server.infinispan.actions.GetDefinedCacheNamesAction;
+import org.infinispan.server.infinispan.actions.GetMembersAction;
+import org.infinispan.server.infinispan.actions.GetRunningCacheCountAction;
+import org.infinispan.server.infinispan.actions.GetSearchManagerAction;
+import org.infinispan.server.infinispan.actions.ResetComponentJmxStatisticsAction;
+import org.infinispan.server.infinispan.actions.ResetInterceptorJmxStatisticsAction;
+import org.infinispan.server.infinispan.actions.StartCacheAction;
+import org.infinispan.server.infinispan.actions.StopCacheAction;
 import org.infinispan.util.concurrent.locks.LockManager;
-import org.jboss.as.clustering.infinispan.DefaultEmbeddedCacheManager;
+import org.jboss.as.clustering.infinispan.DefaultCacheContainer;
 
 /**
  * SecurityActions for the org.infinispan.server.infinispan package
@@ -94,6 +109,17 @@ public final class SecurityActions {
         doPrivileged(action);
     }
 
+    public static void undefineContainerConfiguration(final EmbeddedCacheManager container, final String name) {
+        PrivilegedAction<Void> action = new PrivilegedAction<Void>() {
+            @Override
+            public Void run() {
+                container.undefineConfiguration(name);
+                return null;
+            }
+        };
+        doPrivileged(action);
+    }
+
     public static <K, V> Cache<K, V> startCache(final EmbeddedCacheManager container, final String name) {
         PrivilegedAction<Cache<K, V>> action = new PrivilegedAction<Cache<K, V>>() {
             @Override
@@ -104,6 +130,17 @@ public final class SecurityActions {
             }
         };
         return doPrivileged(action);
+    }
+
+    public static void stopCache(final Cache<?, ?> cache) {
+        PrivilegedAction<Void> action = new PrivilegedAction<Void>() {
+            @Override
+            public Void run() {
+                cache.stop();
+                return null;
+            }
+        };
+        doPrivileged(action);
     }
 
     public static LockManager getLockManager(final AdvancedCache<?, ?> cache) {
@@ -131,29 +168,94 @@ public final class SecurityActions {
         return doPrivileged(action);
     }
 
+    public static String getCacheVersion(AdvancedCache<?, ?> cache) {
+       GetCacheVersionAction action = new GetCacheVersionAction(cache);
+        return doPrivileged(action);
+    }
+
     public static ComponentStatus getCacheManagerStatus(EmbeddedCacheManager cacheManager) {
         GetCacheManagerStatusAction action = new GetCacheManagerStatusAction(cacheManager);
         return doPrivileged(action);
     }
 
-    public static Address getCacheManagerLocalAddress(DefaultEmbeddedCacheManager cacheManager) {
+    public static Address getCacheManagerLocalAddress(DefaultCacheContainer cacheManager) {
         GetCacheManagerAddress action = new GetCacheManagerAddress(cacheManager);
         return doPrivileged(action);
     }
 
-    public static Address getCacheManagerCoordinatorAddress(DefaultEmbeddedCacheManager cacheManager) {
+    public static Address getCacheManagerCoordinatorAddress(DefaultCacheContainer cacheManager) {
         GetCacheManagerCoordinatorAddress action = new GetCacheManagerCoordinatorAddress(cacheManager);
         return doPrivileged(action);
     }
 
-    public static boolean getCacheManagerIsCoordinator(DefaultEmbeddedCacheManager cacheManager) {
+    public static boolean getCacheManagerIsCoordinator(DefaultCacheContainer cacheManager) {
         GetCacheManagerIsCoordinatorAction action = new GetCacheManagerIsCoordinatorAction(cacheManager);
         return doPrivileged(action);
     }
 
-    public static String getCacheManagerClusterName(DefaultEmbeddedCacheManager cacheManager) {
+    public static String getCacheManagerClusterName(DefaultCacheContainer cacheManager) {
         GetCacheManagerClusterNameAction action = new GetCacheManagerClusterNameAction(cacheManager);
         return doPrivileged(action);
+    }
+
+    public static String getCacheManagerClusterAvailability(DefaultCacheContainer cacheManager) {
+        GetCacheManagerClusterAvailabilityAction action = new GetCacheManagerClusterAvailabilityAction(cacheManager);
+        return doPrivileged(action);
+    }
+
+    public static String getDefinedCacheNames(DefaultCacheContainer cacheManager) {
+        GetDefinedCacheNamesAction action = new GetDefinedCacheNamesAction(cacheManager);
+        return doPrivileged(action);
+    }
+
+    public static String getCacheCreatedCount(DefaultCacheContainer cacheManager) {
+        GetCreatedCacheCountAction action = new GetCreatedCacheCountAction(cacheManager);
+        return doPrivileged(action);
+    }
+
+    public static String getDefinedCacheCount(DefaultCacheContainer cacheManager) {
+        GetDefinedCacheCountAction action = new GetDefinedCacheCountAction(cacheManager);
+        return doPrivileged(action);
+    }
+
+    public static String getRunningCacheCount(DefaultCacheContainer cacheManager) {
+        GetRunningCacheCountAction action = new GetRunningCacheCountAction(cacheManager);
+        return doPrivileged(action);
+    }
+
+    public static List<Address> getMembers(DefaultCacheContainer cacheManager) {
+        GetMembersAction action = new GetMembersAction(cacheManager);
+        return doPrivileged(action);
+    }
+
+    public static Void clearCache(AdvancedCache<?, ?> cache) {
+        ClearCacheAction action = new ClearCacheAction(cache);
+        doPrivileged(action);
+        return null;
+    }
+
+    public static Void stopCache(AdvancedCache<?, ?> cache) {
+        StopCacheAction action = new StopCacheAction(cache);
+        doPrivileged(action);
+        return null;
+    }
+
+    public static Void startCache(AdvancedCache<?, ?> cache) {
+        StartCacheAction action = new StartCacheAction(cache);
+        doPrivileged(action);
+        return null;
+    }
+
+    public static <T extends JmxStatisticsExposer> Void resetStatistics(AdvancedCache<?, ?> cache,
+                                                                        Class<T> jmxClass) {
+        PrivilegedAction<Void> action;
+        if (jmxClass.isAssignableFrom(CommandInterceptor.class)) {
+            action = new ResetInterceptorJmxStatisticsAction(cache, jmxClass);
+        } else {
+           action = new ResetComponentJmxStatisticsAction(cache, jmxClass);
+        }
+        doPrivileged(action);
+        return null;
     }
 
     public static Map<String, String> executeInterpreter(final Interpreter interpreter, final String sessionId,
@@ -167,5 +269,8 @@ public final class SecurityActions {
         return doPrivileged(action);
     }
 
-
+    public static SearchManager getSearchManager(AdvancedCache<?, ?> cache) {
+        GetSearchManagerAction action = new GetSearchManagerAction(cache);
+        return doPrivileged(action);
+    }
 }

@@ -70,10 +70,10 @@ public abstract class AbstractCrashTest extends MultipleCacheManagersTest {
                final DummyTransaction transaction = (DummyTransaction) tm(cacheIndex).getTransaction();
                transaction.runPrepare();
             } catch (Throwable e) {
-               e.printStackTrace();
+               log.errorf(e, "Error preparing transaction for key %s on cache %s", k, cache(cacheIndex));
             }
          }
-      }, false);
+      });
       return k;
    }
 
@@ -89,7 +89,7 @@ public abstract class AbstractCrashTest extends MultipleCacheManagersTest {
                log.errorf(e, "Error committing transaction for key %s on cache %s", k, cache(cacheIndex));
             }
          }
-      }, false);
+      });
       return k;
    }
 

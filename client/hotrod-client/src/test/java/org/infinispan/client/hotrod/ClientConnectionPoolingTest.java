@@ -3,7 +3,9 @@ package org.infinispan.client.hotrod;
 import org.apache.commons.pool.impl.GenericKeyedObjectPool;
 import org.infinispan.Cache;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
+import org.infinispan.client.hotrod.test.InternalRemoteCacheManager;
 import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.commands.VisitableCommand;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.interceptors.base.CommandInterceptor;
@@ -71,10 +73,10 @@ public class ClientConnectionPoolingTest extends MultipleCacheManagersTest {
       c2 = TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration()).getCache();
       registerCacheManager(c1.getCacheManager(), c2.getCacheManager());
 
-      hotRodServer1 = TestHelper.startHotRodServer(c1.getCacheManager());
-      hotRodServer2 = TestHelper.startHotRodServer(c2.getCacheManager());
+      hotRodServer1 = HotRodClientTestingUtil.startHotRodServer(c1.getCacheManager());
+      hotRodServer2 = HotRodClientTestingUtil.startHotRodServer(c2.getCacheManager());
 
-      String servers = TestHelper.getServersString(hotRodServer1, hotRodServer2);
+      String servers = HotRodClientTestingUtil.getServersString(hotRodServer1, hotRodServer2);
       Properties hotrodClientConf = new Properties();
       hotrodClientConf.setProperty(ConfigurationProperties.SERVER_LIST, servers);
       hotrodClientConf.setProperty("maxActive", "2");
@@ -90,11 +92,11 @@ public class ClientConnectionPoolingTest extends MultipleCacheManagersTest {
       hotrodClientConf.setProperty("lifo", "true");
       hotrodClientConf.setProperty("infinispan.client.hotrod.ping_on_startup", "false");
 
-      remoteCacheManager = new RemoteCacheManager(hotrodClientConf);
+      remoteCacheManager = new InternalRemoteCacheManager(hotrodClientConf);
       remoteCache = remoteCacheManager.getCache();
 
-      TcpTransportFactory tcpConnectionFactory = (TcpTransportFactory) extractField(remoteCacheManager, "transportFactory");
-      connectionPool = (GenericKeyedObjectPool<?, ?>) extractField(tcpConnectionFactory, "connectionPool");
+      TcpTransportFactory tcpConnectionFactory = (TcpTransportFactory) ((InternalRemoteCacheManager) remoteCacheManager).getTransportFactory();
+      connectionPool = (GenericKeyedObjectPool<?, ?>) tcpConnectionFactory.getConnectionPool();
       workerThread1 = new WorkerThread(remoteCache);
       workerThread2 = new WorkerThread(remoteCache);
       workerThread3 = new WorkerThread(remoteCache);

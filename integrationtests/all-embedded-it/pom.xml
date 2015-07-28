@@ -1,0 +1,89 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+   <modelVersion>4.0.0</modelVersion>
+
+   <parent>
+      <groupId>org.infinispan</groupId>
+      <artifactId>infinispan-integrationtests-parent</artifactId>
+      <version>8.0.0-SNAPSHOT</version>
+   </parent>
+
+   <artifactId>infinispan-embedded-it</artifactId>
+   <name>Infinispan Embedded Integration Tests</name>
+   <description>Infinispan Embedded All-in-One module Integration Tests</description>
+
+   <dependencyManagement>
+      <dependencies>
+         <dependency>
+            <groupId>org.jboss.arquillian</groupId>
+            <artifactId>arquillian-bom</artifactId>
+            <version>1.1.5.Final</version>
+            <type>pom</type>
+            <scope>import</scope>
+         </dependency>
+      </dependencies>
+   </dependencyManagement>
+
+   <dependencies>
+      <dependency>
+         <groupId>org.infinispan</groupId>
+         <artifactId>infinispan-embedded</artifactId>
+      </dependency>
+      <dependency>
+         <groupId>javax.cache</groupId>
+         <artifactId>cache-api</artifactId>
+         <scope>provided</scope>
+      </dependency>
+      
+       <dependency>
+           <groupId>org.hibernate</groupId>
+           <artifactId>hibernate-entitymanager</artifactId>
+           <scope>provided</scope>
+       </dependency>
+       
+       <dependency>
+           <groupId>com.mchange</groupId>
+           <artifactId>c3p0</artifactId>
+           <scope>provided</scope>
+       </dependency>
+      <dependency>
+         <groupId>junit</groupId>
+         <artifactId>junit</artifactId>
+         <version>4.11</version>
+         <scope>test</scope>
+      </dependency>
+   </dependencies>
+
+    <profiles>
+        <profile>
+            <id>h2</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.h2database</groupId>
+                    <artifactId>h2</artifactId>
+                    <version>1.4.180</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <systemPropertyVariables>
+                                <connection.url>jdbc:h2:mem:test;DB_CLOSE_DELAY=-1</connection.url>
+                                <driver.class>org.h2.Driver</driver.class>
+                                <jgroups.bind_addr>127.0.0.1</jgroups.bind_addr>
+                                <java.net.preferIPv4Stack>true</java.net.preferIPv4Stack>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

@@ -8,6 +8,7 @@ import org.infinispan.query.dsl.Query;
 import org.infinispan.query.dsl.QueryBuilder;
 import org.infinispan.query.dsl.impl.BaseQueryFactory;
 import org.infinispan.query.remote.client.MarshallerRegistration;
+import org.infinispan.query.remote.client.QueryRequest;
 
 /**
  * @author anistor@redhat.com
@@ -24,21 +25,25 @@ public final class RemoteQueryFactory extends BaseQueryFactory<Query> {
       this.cache = cache;
 
       try {
-         MarshallerRegistration.registerMarshallers(serializationContext);
+         if (!serializationContext.canMarshall(QueryRequest.class)) {
+            MarshallerRegistration.registerMarshallers(serializationContext);
+         }
       } catch (Exception e) {
-         //todo [anistor] need better exception handling
-         throw new HotRodClientException("Failed to initialise serialization context", e);
+         throw new HotRodClientException("Failed to initialise the Protobuf serialization context", e);
       }
    }
 
    @Override
    public QueryBuilder<Query> from(Class entityType) {
       String typeName = serializationContext.getMarshaller(entityType).getTypeName();
-      return new RemoteQueryBuilder(cache, serializationContext, typeName);
+      return new RemoteQueryBuilder(this, cache, serializationContext, typeName);
    }
 
    @Override
    public QueryBuilder<Query> from(String entityType) {
-      return new RemoteQueryBuilder(cache, serializationContext, entityType);
+      // just check that the type name is valid
+      serializationContext.getMarshaller(entityType);
+
+      return new RemoteQueryBuilder(this, cache, serializationContext, entityType);
    }
 }

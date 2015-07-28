@@ -1,5 +1,6 @@
 package org.infinispan.client.hotrod.impl.operations;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import net.jcip.annotations.Immutable;
@@ -26,16 +27,16 @@ public class PutIfAbsentOperation extends AbstractKeyValueOperation<byte[]> {
 
    public PutIfAbsentOperation(Codec codec, TransportFactory transportFactory,
                                byte[] key, byte[] cacheName, AtomicInteger topologyId,
-                               Flag[] flags, byte[] value, int lifespan, int maxIdle) {
-      super(codec, transportFactory, key, cacheName, topologyId, flags, value, lifespan, maxIdle);
+                               Flag[] flags, byte[] value, long lifespan,TimeUnit lifespanTimeUnit, long maxIdleTime, TimeUnit maxIdleTimeUnit) {
+      super(codec, transportFactory, key, cacheName, topologyId, flags, value, lifespan, lifespanTimeUnit, maxIdleTime, maxIdleTimeUnit);
    }
 
    @Override
    protected byte[] executeOperation(Transport transport) {
       short status = sendPutOperation(transport, PUT_IF_ABSENT_REQUEST, PUT_IF_ABSENT_RESPONSE);
       byte[] previousValue = null;
-      if (status == NO_ERROR_STATUS || status == NOT_PUT_REMOVED_REPLACED_STATUS) {
-         previousValue = returnPossiblePrevValue(transport);
+      if (status == NO_ERROR_STATUS || status == NOT_PUT_REMOVED_REPLACED_STATUS || status == NOT_EXECUTED_WITH_PREVIOUS) {
+         previousValue = returnPossiblePrevValue(transport, status);
          if (log.isTraceEnabled()) {
             log.tracef("Returning from putIfAbsent: %s", Util.printArray(previousValue, false));
          }

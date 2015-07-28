@@ -12,6 +12,7 @@ import org.infinispan.notifications.cachemanagerlistener.annotation.*;
 import org.infinispan.notifications.cachemanagerlistener.event.*;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.commons.util.FileLookup;
+import org.infinispan.commons.util.FileLookupFactory;
 import org.infinispan.commons.util.LegacyKeySupportSystemProperties;
 import org.infinispan.commons.util.Util;
 import org.infinispan.util.logging.Log;
@@ -93,7 +94,7 @@ public class InfinispanDemo {
       if(args.length > 0)
          cfgFileName=args[0];
       else
-         cfgFileName = LegacyKeySupportSystemProperties.getProperty("infinispan.configuration", "infinispan.demo.cfg", "config-samples/gui-demo-cache-config.xml");
+         cfgFileName = LegacyKeySupportSystemProperties.getProperty("infinispan.configuration", "infinispan.demo.cfg", "config/gui-demo-cache-config.xml");
       frame = new JFrame("Infinispan GUI Demo (STOPPED)");
       frame.setContentPane(new InfinispanDemo(cfgFileName).panel1);
       frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -353,7 +354,7 @@ public class InfinispanDemo {
          @Override
          public void run() {
             try {
-               URL resource = new FileLookup().lookupFileLocation(cacheConfigFile, getClass().getClassLoader());
+               URL resource = FileLookupFactory.newInstance().lookupFileLocation(cacheConfigFile, getClass().getClassLoader());
                if (resource == null) resource = new URL(cacheConfigFile);
 
                if (cacheManager == null) {

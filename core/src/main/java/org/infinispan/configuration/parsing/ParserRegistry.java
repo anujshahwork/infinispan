@@ -9,7 +9,6 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentMap;
@@ -22,6 +21,7 @@ import javax.xml.stream.XMLStreamReader;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.util.CollectionFactory;
 import org.infinispan.commons.util.FileLookup;
+import org.infinispan.commons.util.FileLookupFactory;
 import org.infinispan.commons.util.ServiceFinder;
 import org.infinispan.commons.util.Util;
 import org.infinispan.util.logging.Log;
@@ -42,12 +42,16 @@ public class ParserRegistry implements NamespaceMappingParser {
    private static final Log log = LogFactory.getLog(ParserRegistry.class);
    private final WeakReference<ClassLoader> cl;
    private final ConcurrentMap<QName, ConfigurationParser> parserMappings;
-   
+
    public ParserRegistry() {
       this(Thread.currentThread().getContextClassLoader());
    }
 
    public ParserRegistry(ClassLoader classLoader) {
+      this(classLoader, false);
+   }
+
+   public ParserRegistry(ClassLoader classLoader, boolean defaultParsersOnly) {
       this.parserMappings = CollectionFactory.makeConcurrentMap();
       this.cl = new WeakReference<ClassLoader>(classLoader);
       Collection<ConfigurationParser> parsers = ServiceFinder.load(ConfigurationParser.class, cl.get(), ParserRegistry.class.getClassLoader());
@@ -58,20 +62,32 @@ public class ParserRegistry implements NamespaceMappingParser {
                throw log.parserDoesNotDeclareNamespaces(parser.getClass().getName());
             }
 
-            for (Namespace ns : namespaces) {
-               QName qName = new QName(ns.uri(), ns.root());
-               if (parserMappings.putIfAbsent(qName, parser) != null) {
-                  throw log.parserRootElementAlreadyRegistered(qName);
+            boolean skipParser = defaultParsersOnly;
+
+            if (skipParser) {
+               for (Namespace ns : namespaces) {
+                  if ("".equals(ns.uri())) {
+                     skipParser = false;
+                  }
+               }
+            }
+
+            if (!skipParser) {
+               for (Namespace ns : namespaces) {
+                  QName qName = new QName(ns.uri(), ns.root());
+                  if (parserMappings.putIfAbsent(qName, parser) != null) {
+                     throw log.parserRootElementAlreadyRegistered(qName);
+                  }
                }
             }
          } catch (Exception e) {
-            // 
+            //
          }
       }
    }
 
    public ConfigurationBuilderHolder parseFile(String filename) throws IOException {
-      FileLookup fileLookup = new FileLookup();
+      FileLookup fileLookup = FileLookupFactory.newInstance();
       InputStream is = fileLookup.lookupFile(filename, cl.get());
       if (is == null) {
          throw new FileNotFoundException(filename);
@@ -128,7 +144,7 @@ public class ParserRegistry implements NamespaceMappingParser {
       QName name = reader.getName();
       ConfigurationParser parser = parserMappings.get(name);
       if (parser == null) {
-         throw new XMLStreamException("Unexpected element '" + name + "'", reader.getLocation());
+         throw log.unsupportedConfiguration(name.getLocalPart(), name.getNamespaceURI());
       }
       parser.readElement(reader, holder);
    }

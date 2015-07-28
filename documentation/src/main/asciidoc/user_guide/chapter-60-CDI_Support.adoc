@@ -314,10 +314,10 @@ To use these annotations the following interceptors must be declared in your app
        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
        xsi:schemaLocation="http://java.sun.com/xml/ns/javaee http://java.sun.com/xml/ns/javaee/beans_1_0.xsd">
     <interceptors>
-        <class>org.infinispan.cdi.interceptor.CacheResultInterceptor</class>
-        <class>org.infinispan.cdi.interceptor.CachePutInterceptor</class>
-        <class>org.infinispan.cdi.interceptor.CacheRemoveEntryInterceptor</class>
-        <class>org.infinispan.cdi.interceptor.CacheRemoveAllInterceptor</class>
+        <class>org.infinispan.jcache.annotation.InjectedCacheResultInterceptor</class>
+        <class>org.infinispan.jcache.annotation.InjectedCachePutInterceptor</class>
+        <class>org.infinispan.jcache.annotation.InjectedCacheRemoveEntryInterceptor</class>
+        <class>org.infinispan.jcache.annotation.InjectedCacheRemoveAllInterceptor</class>
     </interceptors>
 </beans>
 
@@ -350,3 +350,32 @@ To use another cache specify its name with the cacheName attribute of the cache 
 @CacheResult(cacheName = "greeting-cache")
 
 ----
+
+=== Use Cache events and CDI
+
+It is possible to receive Cache and Cache Manager level events using CDI Events. You can achieve it using @Observes annotation as shown in the following snippet:
+
+[source,java]
+----
+
+import javax.enterprise.event.Observes;
+import org.infinispan.notifications.cachemanagerlistener.event.CacheStartedEvent;
+import org.infinispan.notifications.cachelistener.event.*;
+
+public class GreetingService {
+
+    // Cache level events
+    private void entryRemovedFromCache(@Observes CacheEntryCreatedEvent event) {
+        ...
+    }
+
+    // Cache Manager level events
+    private void cacheStarted(@Observes CacheStartedEvent event) {
+        ...
+    }
+}
+
+----
+
+TIP: Check <<_Listeners_and_notifications_section,Listeners and Notifications section>> for more information about event types.
+

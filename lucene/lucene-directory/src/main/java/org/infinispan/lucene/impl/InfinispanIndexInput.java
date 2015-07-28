@@ -19,7 +19,7 @@ import org.infinispan.util.logging.LogFactory;
  * @see org.apache.lucene.store.Directory
  * @see org.apache.lucene.store.IndexInput
  */
-abstract class InfinispanIndexInput extends IndexInput {
+public class InfinispanIndexInput extends IndexInput {
 
 
    private static final Log log = LogFactory.getLog(InfinispanIndexInput.class);
@@ -50,6 +50,17 @@ abstract class InfinispanIndexInput extends IndexInput {
       if (trace) {
          log.tracef("Opened new IndexInput for file:%s in index: %s", filename, fileKey.getIndexName());
       }
+   }
+
+   private InfinispanIndexInput(final String resourceDescription, final Cache<ChunkCacheKey, Object> chunksCache, FileCacheKey fileKey, int chunkSize, String filename, long fileLength) {
+      super(resourceDescription);
+      this.chunksCache = chunksCache;
+      this.fileKey = fileKey;
+      this.chunkSize = chunkSize;
+      this.filename = filename;
+      this.fileLength = fileLength;
+      this.readLocks = null;//Lifecycle of this IndexInput is dependent on a parent IndexInput
+      this.isClone = true;
    }
 
    @Override
@@ -138,6 +149,24 @@ abstract class InfinispanIndexInput extends IndexInput {
    @Override
    public long length() {
       return this.fileLength;
+   }
+
+   @Override
+   public InfinispanIndexInput clone() {
+      InfinispanIndexInput clone = (InfinispanIndexInput)super.clone();
+      // reference counting doesn't work properly: need to use isClone
+      // as in other Directory implementations. Apparently not all clones
+      // are cleaned up, but the original is (especially .tis files)
+      clone.isClone = true;
+      return clone;
+   }
+
+   public IndexInput slice(String sliceDescription, long offset, long length) throws IOException {
+      return new SlicingInfinispanIndexInput(sliceDescription, offset, length, copyAndReset());
+   }
+
+   InfinispanIndexInput copyAndReset() {
+      return new InfinispanIndexInput(filename, chunksCache, fileKey, chunkSize, filename, fileLength);
    }
 
 }

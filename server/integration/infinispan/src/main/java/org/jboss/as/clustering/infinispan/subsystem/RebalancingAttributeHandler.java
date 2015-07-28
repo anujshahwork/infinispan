@@ -23,6 +23,9 @@ import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.VALUE;
 
 import org.infinispan.Cache;
+import org.infinispan.factories.ComponentRegistry;
+import org.infinispan.server.infinispan.SecurityActions;
+import org.infinispan.server.infinispan.spi.service.CacheServiceName;
 import org.infinispan.topology.LocalTopologyManager;
 import org.infinispan.topology.LocalTopologyManagerImpl;
 import org.jboss.as.controller.AbstractRuntimeOnlyHandler;
@@ -48,12 +51,13 @@ public class RebalancingAttributeHandler extends AbstractRuntimeOnlyHandler {
         final String cacheContainerName = address.getElement(address.size() - 2).getValue();
         final String cacheName = address.getElement(address.size() - 1).getValue();
         final ServiceController<?> controller = context.getServiceRegistry(false).getService(
-                CacheService.getServiceName(cacheContainerName, cacheName));
+                CacheServiceName.CACHE.getServiceName(cacheContainerName, cacheName));
         if (controller != null) {
             Cache<?, ?> cache = (Cache<?, ?>) controller.getValue();
             if (cache != null) {
-                LocalTopologyManagerImpl localTopologyManager = (LocalTopologyManagerImpl) cache.getAdvancedCache()
-                        .getComponentRegistry().getGlobalComponentRegistry().getComponent(LocalTopologyManager.class);
+                ComponentRegistry registry = SecurityActions.getComponentRegistry(cache.getAdvancedCache());
+                LocalTopologyManagerImpl localTopologyManager = (LocalTopologyManagerImpl) registry
+                      .getGlobalComponentRegistry().getComponent(LocalTopologyManager.class);
                 if (localTopologyManager != null) {
                     try {
                         if (operation.hasDefined(VALUE)) {

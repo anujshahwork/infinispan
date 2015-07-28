@@ -9,7 +9,7 @@ import javax.management.ObjectName;
 import org.infinispan.Cache;
 import org.infinispan.commons.CacheException;
 import org.infinispan.commons.api.BasicCacheContainer;
-import org.infinispan.commons.util.FileLookup;
+import org.infinispan.commons.util.FileLookupFactory;
 import org.infinispan.configuration.parsing.ConfigurationBuilderHolder;
 import org.infinispan.configuration.parsing.ParserRegistry;
 import org.infinispan.jmx.PerThreadMBeanServerLookup;
@@ -24,7 +24,7 @@ import org.testng.annotations.Test;
  * @author Galder Zamarreño
  * @since 5.2
  */
-@Test(groups = /*functional*/"unstable", testName = "query.jmx.DistributedMassIndexingViaJmxTest", description = "Unstable, see https://issues.jboss.org/browse/ISPN-4012")
+@Test(groups = "functional", testName = "query.jmx.DistributedMassIndexingViaJmxTest")
 public class DistributedMassIndexingViaJmxTest extends DistributedMassIndexingTest {
 
    static final String BASE_JMX_DOMAIN = DistributedMassIndexingViaJmxTest.class.getSimpleName();
@@ -34,7 +34,7 @@ public class DistributedMassIndexingViaJmxTest extends DistributedMassIndexingTe
    protected void createCacheManagers() throws Throwable {
       server = PerThreadMBeanServerLookup.getThreadMBeanServer();
       for (int i = 0; i < NUM_NODES; i++) {
-         InputStream is = new FileLookup().lookupFileStrict(
+         InputStream is = FileLookupFactory.newInstance().lookupFileStrict(
                "dynamic-indexing-distribution.xml",
                Thread.currentThread().getContextClassLoader());
          ParserRegistry parserRegistry = new ParserRegistry(
@@ -62,12 +62,6 @@ public class DistributedMassIndexingViaJmxTest extends DistributedMassIndexingTe
             BASE_JMX_DOMAIN + 0, cacheManagerName, BasicCacheContainer.DEFAULT_CACHE_NAME);
       server.invoke(massIndexerObjName,
             "start", new Object[]{}, new String[]{});
-   }
-
-   @Test(groups ="unstable")
-   @Override
-   public void testReindexing() throws Exception {
-      super.testReindexing();
    }
 
    private ObjectName getMassIndexerObjectName(String jmxDomain, String cacheManagerName, String cacheName) {

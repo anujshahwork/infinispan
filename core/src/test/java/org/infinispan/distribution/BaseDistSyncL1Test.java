@@ -2,15 +2,16 @@ package org.infinispan.distribution;
 
 import org.infinispan.Cache;
 import org.infinispan.commands.VisitableCommand;
+import org.infinispan.commands.read.GetCacheEntryCommand;
 import org.infinispan.commands.read.GetKeyValueCommand;
 import org.infinispan.commands.write.InvalidateL1Command;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.interceptors.base.CommandInterceptor;
 import org.infinispan.interceptors.distribution.L1WriteSynchronizer;
 import org.infinispan.statetransfer.StateTransferLock;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.CheckPoint;
-import org.infinispan.test.fwk.CleanupAfterMethod;
 import org.infinispan.transaction.TransactionMode;
 import org.infinispan.util.concurrent.IsolationLevel;
 import org.junit.Assert;
@@ -51,10 +52,6 @@ public abstract class BaseDistSyncL1Test extends BaseDistFunctionalTest<Object, 
 
    protected IsolationLevel isolationLevel = IsolationLevel.READ_COMMITTED;
 
-   public BaseDistSyncL1Test() {
-      cleanup = CleanupPhase.AFTER_METHOD;
-   }
-
    @Override
    protected ConfigurationBuilder buildConfiguration() {
       ConfigurationBuilder builder = super.buildConfiguration();
@@ -77,7 +74,7 @@ public abstract class BaseDistSyncL1Test extends BaseDistFunctionalTest<Object, 
                                          Class<? extends VisitableCommand> commandClass,
                                          Class<? extends CommandInterceptor> interceptorPosition,
                                          boolean blockAfterCommand) {
-      cache.getAdvancedCache().addInterceptorBefore(new BlockingInterceptor(barrier, commandClass, blockAfterCommand),
+      cache.getAdvancedCache().addInterceptorBefore(new BlockingInterceptor(barrier, commandClass, blockAfterCommand, false),
                                                     interceptorPosition);
    }
 
@@ -183,7 +180,7 @@ public abstract class BaseDistSyncL1Test extends BaseDistFunctionalTest<Object, 
       CyclicBarrier invalidationBarrier = new CyclicBarrier(2);
       // We want to block right before the invalidation would hit the L1 interceptor to prevent it from invaliding until we want
       nonOwnerCache.getAdvancedCache().addInterceptorBefore(
-            new BlockingInterceptor(invalidationBarrier, InvalidateL1Command.class, false), getL1InterceptorClass());
+            new BlockingInterceptor(invalidationBarrier, InvalidateL1Command.class, false, false), getL1InterceptorClass());
 
       try {
          assertEquals(firstValue, nonOwnerCache.get(key));
@@ -316,9 +313,9 @@ public abstract class BaseDistSyncL1Test extends BaseDistFunctionalTest<Object, 
       // Add a barrier to block the owner/backupowner from going further after retrieving the value before coming back into the L1
       // interceptor
       CyclicBarrier getBarrier = new CyclicBarrier(3);
-      ownerCache.getAdvancedCache().addInterceptorAfter(new BlockingInterceptor(getBarrier, GetKeyValueCommand.class, true),
+      ownerCache.getAdvancedCache().addInterceptorAfter(new BlockingInterceptor(getBarrier, GetCacheEntryCommand.class, true, false),
                                                         getL1InterceptorClass());
-      backupOwnerCache.getAdvancedCache().addInterceptorAfter(new BlockingInterceptor(getBarrier, GetKeyValueCommand.class, true),
+      backupOwnerCache.getAdvancedCache().addInterceptorAfter(new BlockingInterceptor(getBarrier, GetCacheEntryCommand.class, true, false),
                                                        getL1InterceptorClass());
 
       try {
@@ -496,6 +493,66 @@ public abstract class BaseDistSyncL1Test extends BaseDistFunctionalTest<Object, 
          assertIsInL1(nonOwnerCache, key);
       } else {
          assertIsNotInL1(nonOwnerCache, key);
+      }
+   }
+
+   public void testL1GetAndCacheEntryGet() {
+      final Cache<Object, String>[] owners = getOwners(key, 2);
+
+      final Cache<Object, String> ownerCache = owners[0];
+      final Cache<Object, String> nonOwnerCache = getFirstNonOwner(key);
+
+      ownerCache.put(key, firstValue);
+
+      Assert.assertEquals(firstValue, nonOwnerCache.get(key));
+
+      assertIsInL1(nonOwnerCache, key);
+
+      CacheEntry<Object, String> entry = nonOwnerCache.getAdvancedCache().getCacheEntry(key);
+      Assert.assertEquals(key, entry.getKey());
+      Assert.assertEquals(firstValue, entry.getValue());
+   }
+
+   @Test
+   public void testGetBlockingAnotherGetCacheEntry() throws Throwable {
+      final Cache<Object, String> nonOwnerCache = getFirstNonOwner(key);
+      final Cache<Object, String> ownerCache = getFirstOwner(key);
+
+      ownerCache.put(key, firstValue);
+
+      assertIsNotInL1(nonOwnerCache, key);
+
+      CheckPoint checkPoint = new CheckPoint();
+      StateTransferLock lock = waitUntilAboutToAcquireLock(nonOwnerCache, checkPoint);
+
+      try {
+         log.warn("Doing get here - ignore all previous");
+
+         Future<String> getFuture = nonOwnerCache.getAsync(key);
+
+         // Wait until we are about to write value into data container on non owner
+         checkPoint.awaitStrict("pre_acquire_shared_topology_lock_invoked", 10, TimeUnit.SECONDS);
+
+         Future<CacheEntry<Object, String>> getFuture2 = fork(() -> nonOwnerCache.getAdvancedCache().getCacheEntry(key));
+
+         try {
+            getFuture2.get(1, TimeUnit.SECONDS);
+            fail("Should have thrown a TimeoutException");
+         } catch (TimeoutException e) {
+         }
+
+         // Let the get complete finally
+         checkPoint.triggerForever("pre_acquire_shared_topology_lock_released");
+
+         Assert.assertEquals(firstValue, getFuture.get(10, TimeUnit.SECONDS));
+
+         CacheEntry<Object, String> entry = getFuture2.get(10, TimeUnit.SECONDS);
+         Assert.assertEquals(key, entry.getKey());
+         Assert.assertEquals(firstValue, entry.getValue());
+
+         assertIsInL1(nonOwnerCache, key);
+      } finally {
+         TestingUtil.replaceComponent(nonOwnerCache, StateTransferLock.class, lock, true);
       }
    }
 

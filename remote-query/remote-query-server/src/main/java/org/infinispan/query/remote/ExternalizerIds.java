@@ -12,5 +12,6 @@ package org.infinispan.query.remote;
 public interface ExternalizerIds {
 
    Integer PROTOBUF_VALUE_WRAPPER = 1700;
-   Integer PROTOBUF_FILE_DESCRIPTOR_SRC = 1701;
+   Integer JPA_PROTOBUF_CACHE_EVENT_FILTER_CONVERTER = 1701;
+   Integer JPA_PROTOBUF_FILTER_AND_CONVERTER = 1702;
 }

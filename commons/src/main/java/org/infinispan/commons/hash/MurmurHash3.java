@@ -28,6 +28,15 @@ import java.util.Set;
 @ThreadSafe
 @Immutable
 public class MurmurHash3 implements Hash {
+   private final static MurmurHash3 instance = new MurmurHash3();
+   
+   public static MurmurHash3 getInstance() {
+      return instance;
+   }
+   
+   private MurmurHash3() {
+   }
+   
    private static final Charset UTF8 = Charset.forName("UTF-8");
 
    static class State {
@@ -394,6 +403,11 @@ public class MurmurHash3 implements Hash {
    }
 
    @Override
+   public int hashCode() {
+      return 0;
+   }
+
+   @Override
    public String toString() {
       return "MurmurHash3";
    }
@@ -407,7 +421,7 @@ public class MurmurHash3 implements Hash {
 
       @Override
       public MurmurHash3 readObject(ObjectInput input) {
-         return new MurmurHash3();
+         return instance;
       }
 
       @Override

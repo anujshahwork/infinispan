@@ -2,7 +2,6 @@ package org.infinispan.tx;
 
 import org.infinispan.Cache;
 import org.infinispan.commands.CommandsFactory;
-import org.infinispan.commands.CommandsFactoryImpl;
 import org.infinispan.commons.equivalence.AnyEquivalence;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.Configuration;
@@ -25,7 +24,6 @@ import org.testng.annotations.Test;
 
 import javax.transaction.xa.XAException;
 import javax.transaction.xa.XAResource;
-
 import java.util.UUID;
 
 import static org.mockito.Mockito.mock;
@@ -37,9 +35,6 @@ import static org.testng.AssertJUnit.assertEquals;
  */
 @Test(testName = "tx.TransactionXaAdapterTmIntegrationTest", groups = "unstable", description = "Disabled due to instability - see ISPN-1123 -- original group: unit")
 public class TransactionXaAdapterTmIntegrationTest {
-   private Configuration configuration;
-   private XaTransactionTable txTable;
-   private GlobalTransaction globalTransaction;
    private LocalXaTransaction localTx;
    private TransactionXaAdapter xaAdapter;
    private DummyXid xid;
@@ -49,17 +44,17 @@ public class TransactionXaAdapterTmIntegrationTest {
    @BeforeMethod
    public void setUp() throws XAException {
       Cache mockCache = mock(Cache.class);
-      configuration = new ConfigurationBuilder().build();
-      txTable = new XaTransactionTable();
+      Configuration configuration = new ConfigurationBuilder().build();
+      XaTransactionTable txTable = new XaTransactionTable();
       txTable.initialize(null, configuration, null, null, null, null,
-            null, null, null, null, mockCache, null);
+                         null, null, null, null, mockCache, null, null, null);
       txTable.start();
       txTable.startXidMapping();
       TransactionFactory gtf = new TransactionFactory();
       gtf.init(false, false, true, false);
-      globalTransaction = gtf.newGlobalTransaction(null, false);
+      GlobalTransaction globalTransaction = gtf.newGlobalTransaction(null, false);
       DummyBaseTransactionManager tm = new DummyBaseTransactionManager();
-      localTx = new LocalXaTransaction(new DummyTransaction(tm), globalTransaction, false, 1, AnyEquivalence.getInstance());
+      localTx = new LocalXaTransaction(new DummyTransaction(tm), globalTransaction, false, 1, AnyEquivalence.getInstance(), 0);
       xid = new DummyXid(uuid);
 
       InvocationContextFactory icf = new TransactionalInvocationContextFactory();
@@ -68,7 +63,7 @@ public class TransactionXaAdapterTmIntegrationTest {
       txCoordinator = new TransactionCoordinator();
       txCoordinator.init(commandsFactory, icf, invoker, txTable, null, configuration);
       xaAdapter = new TransactionXaAdapter(localTx, txTable, null, txCoordinator, null, null,
-                                           new ClusteringDependentLogic.InvalidationLogic(), configuration, "");
+                                           new ClusteringDependentLogic.InvalidationLogic(), configuration, "", null);
 
       xaAdapter.start(xid, 0);
    }

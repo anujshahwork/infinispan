@@ -41,34 +41,8 @@ public final class ReflectionPropertyHelper extends ObjectPropertyHelper<Class<?
       primitives.add(boolean.class);
    }
 
-   private final ClassLoader classLoader;
-
-   private final EntityNamesResolver entityNamesResolver = new EntityNamesResolver() {
-      @Override
-      public Class<?> getClassFromName(String entityName) {
-         if (classLoader != null) {
-            try {
-               return classLoader.loadClass(entityName);
-            } catch (ClassNotFoundException e) {
-               return null;
-            }
-         }
-
-         try {
-            return Class.forName(entityName);
-         } catch (ClassNotFoundException e) {
-            return null;
-         }
-      }
-   };
-
-   public ReflectionPropertyHelper(ClassLoader classLoader) {
-      this.classLoader = classLoader;
-   }
-
-   @Override
-   public EntityNamesResolver getEntityNamesResolver() {
-      return entityNamesResolver;
+   public ReflectionPropertyHelper(EntityNamesResolver entityNamesResolver) {
+      super(entityNamesResolver);
    }
 
    @Override
@@ -83,13 +57,14 @@ public final class ReflectionPropertyHelper extends ObjectPropertyHelper<Class<?
          throw new IllegalStateException("Unknown entity name " + entityType);
       }
 
-      Class<?> propType = getPropertyTypeByPath(type, propertyPath);
+      Class<?> propType = getPropertyAccessor(type, propertyPath).getPropertyType();
       if (propType.isEnum() || primitives.contains(propType)) {
          return propType;
       }
       return null;
    }
 
+   @Override
    public boolean hasProperty(String entityType, List<String> propertyPath) {
       return hasProperty(entityType, propertyPath.toArray(new String[propertyPath.size()]));
    }
@@ -102,11 +77,30 @@ public final class ReflectionPropertyHelper extends ObjectPropertyHelper<Class<?
       }
 
       try {
-         Class<?> propType = getPropertyTypeByPath(entity, propertyPath);
+         Class<?> propType = getPropertyAccessor(entity, propertyPath).getPropertyType();
          return propType != null && !propType.isEnum() && !primitives.contains(propType);
       } catch (Exception e) {
          return false; // todo [anistor] need clean solution
       }
+   }
+
+   @Override
+   public boolean isRepeatedProperty(String entityType, List<String> propertyPath) {
+      Class<?> entity = entityNamesResolver.getClassFromName(entityType);
+      if (entity == null) {
+         throw new IllegalStateException("Unknown entity name " + entityType);
+      }
+      ReflectionHelper.PropertyAccessor a = ReflectionHelper.getAccessor(entity, propertyPath.get(0));
+      if (a.isMultiple()) {
+         return true;
+      }
+      for (int i = 1; i < propertyPath.size(); i++) {
+         a = a.getAccessor(propertyPath.get(i));
+         if (a.isMultiple()) {
+            return true;
+         }
+      }
+      return false;
    }
 
    private boolean hasProperty(String entityType, String... propertyPath) {
@@ -116,18 +110,18 @@ public final class ReflectionPropertyHelper extends ObjectPropertyHelper<Class<?
       }
 
       try {
-         Class<?> propType = getPropertyTypeByPath(entity, Arrays.asList(propertyPath));
+         Class<?> propType = getPropertyAccessor(entity, Arrays.asList(propertyPath)).getPropertyType();
          return propType != null;
       } catch (Exception e) {
          return false; // todo [anistor] need clean solution
       }
    }
 
-   private Class<?> getPropertyTypeByPath(Class<?> entityClass, List<String> propertyPath) {
+   private ReflectionHelper.PropertyAccessor getPropertyAccessor(Class<?> entityClass, List<String> propertyPath) {
       ReflectionHelper.PropertyAccessor accessor = ReflectionHelper.getAccessor(entityClass, propertyPath.get(0));
       for (int i = 1; i < propertyPath.size(); i++) {
          accessor = accessor.getAccessor(propertyPath.get(i));
       }
-      return accessor.getPropertyType();
+      return accessor;
    }
 }

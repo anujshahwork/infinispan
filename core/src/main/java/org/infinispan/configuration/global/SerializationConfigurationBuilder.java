@@ -17,7 +17,7 @@ import java.util.Map;
 public class SerializationConfigurationBuilder extends AbstractGlobalConfigurationBuilder implements Builder<SerializationConfiguration> {
 
    private Marshaller marshaller = new VersionAwareMarshaller();
-   private short marshallVersion = Short.valueOf(Version.MAJOR_MINOR.replace(".", ""));
+   private short marshallVersion = Version.getMarshallVersion();
    private Map<Integer, AdvancedExternalizer<?>> advancedExternalizers = new HashMap<Integer, AdvancedExternalizer<?>>();
    private ClassResolver classResolver;
 
@@ -33,6 +33,10 @@ public class SerializationConfigurationBuilder extends AbstractGlobalConfigurati
    public SerializationConfigurationBuilder marshaller(Marshaller marshaller) {
       this.marshaller = marshaller;
       return this;
+   }
+
+   public Marshaller getMarshaller() {
+      return marshaller;
    }
 
 

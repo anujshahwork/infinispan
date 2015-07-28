@@ -1,26 +1,35 @@
 package org.infinispan.client.hotrod.test;
 
+import io.netty.channel.ChannelException;
 import org.infinispan.Cache;
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
-import org.infinispan.client.hotrod.event.ClientCacheEntryCreatedEvent;
-import org.infinispan.client.hotrod.event.ClientCacheEntryModifiedEvent;
-import org.infinispan.client.hotrod.event.ClientCacheEntryRemovedEvent;
-import org.infinispan.client.hotrod.event.ClientEvent;
-import org.infinispan.client.hotrod.event.EventLogListener;
+import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
+import org.infinispan.client.hotrod.test.InternalRemoteCacheManager;
+import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
+import org.infinispan.client.hotrod.impl.transport.tcp.FailoverRequestBalancingStrategy;
+import org.infinispan.client.hotrod.impl.transport.tcp.TcpTransportFactory;
 import org.infinispan.client.hotrod.logging.Log;
-import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
+import org.infinispan.commons.util.Util;
 import org.infinispan.container.versioning.NumericVersion;
+import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.server.hotrod.HotRodServer;
+import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
+import org.infinispan.server.hotrod.test.HotRodTestingUtil;
+import org.infinispan.test.TestingUtil;
 import org.infinispan.util.logging.LogFactory;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.io.IOException;
+import java.net.BindException;
+import java.net.InetSocketAddress;
+import java.util.Collection;
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.testng.AssertJUnit.assertEquals;
-import static org.testng.AssertJUnit.assertFalse;
+import static org.infinispan.distribution.DistributionTestHelper.getFirstOwner;
+import static org.infinispan.distribution.DistributionTestHelper.isFirstOwner;
 
 /**
  * Utility methods for the Hot Rod client
@@ -31,6 +40,40 @@ import static org.testng.AssertJUnit.assertFalse;
 public class HotRodClientTestingUtil {
 
    private static final Log log = LogFactory.getLog(HotRodClientTestingUtil.class, Log.class);
+
+   /**
+    * This needs to be different than the one used in the server tests in order to make sure that there's no clash.
+    */
+   private static final AtomicInteger uniquePort = new AtomicInteger(15232);
+
+   public static HotRodServer startHotRodServer(EmbeddedCacheManager cacheManager, HotRodServerConfigurationBuilder builder) {
+      // TODO: This is very rudimentary!! HotRodTestingUtil needs a more robust solution where ports are generated randomly and retries if already bound
+      HotRodServer server = null;
+      int maxTries = 10;
+      int currentTries = 0;
+      ChannelException lastException = null;
+      while (server == null && currentTries < maxTries) {
+         try {
+            server = HotRodTestingUtil.startHotRodServer(cacheManager, uniquePort.incrementAndGet(), builder);
+         } catch (ChannelException e) {
+            if (!(e.getCause() instanceof BindException)) {
+               throw e;
+            } else {
+               log.debug("Address already in use: [" + e.getMessage() + "], so let's try next port");
+               currentTries++;
+               lastException = e;
+            }
+         }
+      }
+      if (server == null && lastException != null)
+         throw lastException;
+
+      return server;
+   }
+
+   public static HotRodServer startHotRodServer(EmbeddedCacheManager cacheManager) {
+      return startHotRodServer(cacheManager, new HotRodServerConfigurationBuilder());
+   }
 
    /**
     * Kills a remote cache manager.
@@ -119,111 +162,165 @@ public class HotRodClientTestingUtil {
       }
    }
 
-   public static <K> void expectOnlyCreatedEvent(K key, EventLogListener eventListener, Cache cache) {
-      expectSingleEvent(key, eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_CREATED, cache);
-      expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_MODIFIED);
-      expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_REMOVED);
-   }
-
-   public static <K> void expectOnlyModifiedEvent(K key, EventLogListener eventListener, Cache cache) {
-      expectSingleEvent(key, eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_MODIFIED, cache);
-      expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_CREATED);
-      expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_REMOVED);
-   }
-
-   public static <K> void expectOnlyRemovedEvent(K key, EventLogListener eventListener, Cache cache) {
-      expectSingleEvent(key, eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_REMOVED, cache);
-      expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_CREATED);
-      expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_MODIFIED);
-   }
-
-   public static void expectNoEvents(EventLogListener eventListener) {
-      expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_CREATED);
-      expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_MODIFIED);
-      expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_REMOVED);
-   }
-
-   public static void expectNoEvents(EventLogListener eventListener, ClientEvent.Type type) {
-      switch (type) {
-         case CLIENT_CACHE_ENTRY_CREATED:
-            assertEquals(0, eventListener.createdEvents.size());
-            break;
-         case CLIENT_CACHE_ENTRY_MODIFIED:
-            assertEquals(0, eventListener.modifiedEvents.size());
-            break;
-         case CLIENT_CACHE_ENTRY_REMOVED:
-            assertEquals(0, eventListener.removedEvents.size());
-            break;
-      }
-   }
-
-   public static <K> void expectSingleEvent(K key, EventLogListener eventListener, ClientEvent.Type type, Cache cache) {
-      switch (type) {
-         case CLIENT_CACHE_ENTRY_CREATED:
-            ClientCacheEntryCreatedEvent createdEvent = eventListener.pollEvent(type);
-            assertEquals(key, createdEvent.getKey());
-            assertEquals(serverDataVersion(cache, key), createdEvent.getVersion());
-            break;
-         case CLIENT_CACHE_ENTRY_MODIFIED:
-            ClientCacheEntryModifiedEvent modifiedEvent = eventListener.pollEvent(type);
-            assertEquals(key, modifiedEvent.getKey());
-            assertEquals(serverDataVersion(cache, key), modifiedEvent.getVersion());
-            break;
-         case CLIENT_CACHE_ENTRY_REMOVED:
-            ClientCacheEntryRemovedEvent removedEvent = eventListener.pollEvent(type);
-            assertEquals(key, removedEvent.getKey());
-            break;
-      }
-      assertEquals(0, eventListener.queue(type).size());
-   }
-
-   private static <K> long serverDataVersion(Cache cache, K key) {
-      Marshaller marshaller = new GenericJBossMarshaller();
+   public static <K> long entryVersion(Cache<byte[], ?> cache, K key) {
+      byte[] lookupKey;
       try {
-         byte[] keyBytes = marshaller.objectToByteBuffer(key);
-         Metadata metadata = cache.getAdvancedCache().getCacheEntry(keyBytes).getMetadata();
-         return ((NumericVersion) metadata.version()).getVersion();
+         lookupKey = toBytes(key);
+      } catch (Exception e) {
+         throw new AssertionError(e);
+      }
+
+      Metadata meta = cache.getAdvancedCache().getCacheEntry(lookupKey).getMetadata();
+      return ((NumericVersion) meta.version()).getVersion();
+   }
+
+   public static byte[] toBytes(Object key) {
+      try {
+         return new GenericJBossMarshaller().objectToByteBuffer(key);
       } catch (Exception e) {
          throw new AssertionError(e);
       }
    }
 
-   public static <K> void expectUnorderedEvents(EventLogListener eventListener, ClientEvent.Type type, K... keys) {
-      List<K> assertedKeys = new ArrayList<K>();
-      for (int i = 0; i < keys.length; i++) {
-         ClientEvent event = eventListener.pollEvent(type);
-         int initialSize = assertedKeys.size();
-         for (K key : keys) {
-            K eventKey = null;
-            switch (event.getType()) {
-               case CLIENT_CACHE_ENTRY_CREATED:
-                  eventKey = ((ClientCacheEntryCreatedEvent<K>) event).getKey();
-                  break;
-               case CLIENT_CACHE_ENTRY_MODIFIED:
-                  eventKey = ((ClientCacheEntryModifiedEvent<K>) event).getKey();
-                  break;
-               case CLIENT_CACHE_ENTRY_REMOVED:
-                  eventKey = ((ClientCacheEntryRemovedEvent<K>) event).getKey();
-                  break;
-            }
-            checkUnorderedKeyEvent(assertedKeys, key, eventKey);
+   public static String getServersString(HotRodServer... servers) {
+      StringBuilder builder = new StringBuilder();
+      for (HotRodServer server : servers) {
+         builder.append("localhost").append(':').append(server.getPort()).append(";");
+      }
+      return builder.toString();
+   }
+
+   public static RemoteCacheManager getRemoteCacheManager(HotRodServer server) {
+      ConfigurationBuilder builder = new ConfigurationBuilder();
+      builder.addServer()
+            .host(server.getHost())
+            .port(server.getPort());
+      return new InternalRemoteCacheManager(builder.build());
+
+   }
+
+   public static byte[] getKeyForServer(HotRodServer primaryOwner) {
+      return getKeyForServer(primaryOwner, null);
+   }
+
+   public static byte[] getKeyForServer(HotRodServer primaryOwner, String cacheName) {
+      GenericJBossMarshaller marshaller = new GenericJBossMarshaller();
+      Cache<?, ?> cache = cacheName != null
+            ? primaryOwner.getCacheManager().getCache(cacheName)
+            : primaryOwner.getCacheManager().getCache();
+      Random r = new Random();
+      byte[] dummy = new byte[8];
+      int attemptsLeft = 1000;
+      try {
+         do {
+            r.nextBytes(dummy);
+            attemptsLeft--;
+         } while (!isFirstOwner(cache, marshaller.objectToByteBuffer(dummy)) && attemptsLeft >= 0);
+      } catch (IOException e) {
+         throw new AssertionError(e);
+      } catch (InterruptedException e) {
+         throw new AssertionError(e);
+      }
+
+      if (attemptsLeft < 0)
+         throw new IllegalStateException("Could not find any key owned by " + primaryOwner);
+
+      log.infof("Binary key %s hashes to [cluster=%s,hotrod=%s]",
+            Util.printArray(dummy, false), primaryOwner.getCacheManager().getAddress(),
+            primaryOwner.getAddress());
+
+      return dummy;
+   }
+
+
+   public static Integer getIntKeyForServer(HotRodServer primaryOwner) {
+      return getIntKeyForServer(primaryOwner, null);
+   }
+
+   public static Integer getIntKeyForServer(HotRodServer primaryOwner, String cacheName) {
+      Cache<?, ?> cache = cacheName != null
+            ? primaryOwner.getCacheManager().getCache(cacheName)
+            : primaryOwner.getCacheManager().getCache();
+      Random r = new Random();
+      byte[] dummy;
+      Integer dummyInt;
+      int attemptsLeft = 1000;
+      do {
+         dummyInt = r.nextInt();
+         dummy = toBytes(dummyInt);
+         attemptsLeft--;
+      } while (!isFirstOwner(cache, dummy) && attemptsLeft >= 0);
+
+      if (attemptsLeft < 0)
+         throw new IllegalStateException("Could not find any key owned by " + primaryOwner);
+
+      log.infof("Integer key %s hashes to [cluster=%s,hotrod=%s]",
+            dummyInt, primaryOwner.getCacheManager().getAddress(),
+            primaryOwner.getAddress());
+
+      return dummyInt;
+   }
+
+   /**
+    * Get a split-personality key, whose POJO version hashes to the primary
+    * owner passed in, but it's binary version does not.
+    */
+   public static Integer getSplitIntKeyForServer(HotRodServer primaryOwner, HotRodServer binaryOwner, String cacheName) {
+      Cache<?, ?> cache = cacheName != null
+            ? primaryOwner.getCacheManager().getCache(cacheName)
+            : primaryOwner.getCacheManager().getCache();
+
+      Cache<?, ?> binaryOwnerCache = cacheName != null
+            ? binaryOwner.getCacheManager().getCache(cacheName)
+            : binaryOwner.getCacheManager().getCache();
+
+      Random r = new Random();
+      byte[] dummy;
+      Integer dummyInt;
+      int attemptsLeft = 1000;
+      boolean primaryOwnerFound = false;
+      boolean binaryOwnerFound = false;
+      do {
+         dummyInt = r.nextInt();
+         dummy = toBytes(dummyInt);
+         attemptsLeft--;
+         primaryOwnerFound = isFirstOwner(cache, dummyInt);
+         binaryOwnerFound = isFirstOwner(binaryOwnerCache, dummy);
+      } while (!(primaryOwnerFound && binaryOwnerFound) && attemptsLeft >= 0);
+
+      if (attemptsLeft < 0)
+         throw new IllegalStateException("Could not find any key owned by " + primaryOwner);
+
+      log.infof("Integer key [pojo=%s,bytes=%s] hashes to [cluster=%s,hotrod=%s], but the binary version's owner is [cluster=%s,hotrod=%s]",
+            Util.toHexString(dummy), dummyInt,
+            primaryOwner.getCacheManager().getAddress(), primaryOwner.getAddress(),
+            binaryOwner.getCacheManager().getAddress(), binaryOwner.getAddress());
+
+      return dummyInt;
+   }
+
+   public static <T extends FailoverRequestBalancingStrategy> T getLoadBalancer(RemoteCacheManager client) {
+      TcpTransportFactory transportFactory = null;
+      if (client instanceof InternalRemoteCacheManager) {
+         transportFactory = (TcpTransportFactory) ((InternalRemoteCacheManager) client).getTransportFactory();
+      } else {
+         transportFactory = TestingUtil.extractField(client, "transportFactory");
+      }
+      return (T) transportFactory.getBalancer(HotRodConstants.DEFAULT_CACHE_NAME_BYTES);
+   }
+
+
+   public static void findServerAndKill(RemoteCacheManager client,
+         Collection<HotRodServer> servers, Collection<EmbeddedCacheManager> cacheManagers) {
+      InetSocketAddress addr = (InetSocketAddress) getLoadBalancer(client).nextServer(null);
+      for (HotRodServer server : servers) {
+         if (server.getPort() == addr.getPort()) {
+            HotRodClientTestingUtil.killServers(server);
+            TestingUtil.killCacheManagers(server.getCacheManager());
+            cacheManagers.remove(server.getCacheManager());
+            TestingUtil.blockUntilViewsReceived(50000, false, cacheManagers);
          }
-         int finalSize = assertedKeys.size();
-         assertEquals(initialSize + 1, finalSize);
       }
-   }
-
-   private static <K> boolean checkUnorderedKeyEvent(List<K> assertedKeys, K key, K eventKey) {
-      if (key.equals(eventKey)) {
-         assertFalse(assertedKeys.contains(key));
-         assertedKeys.add(key);
-         return true;
-      }
-      return false;
-   }
-
-   public static <K> void expectFailoverEvent(EventLogListener eventListener) {
-      eventListener.pollEvent(ClientEvent.Type.CLIENT_CACHE_FAILOVER);
    }
 
 }

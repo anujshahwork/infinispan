@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <arquillian xmlns="http://www.jboss.org/arquillian-1.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
             xsi:schemaLocation="http://www.jboss.org/arquillian-1.0 http://jboss.org/schema/arquillian/arquillian-1.0.xsd">
+            
+    <defaultProtocol type="jmx-as7" />
 
     <group qualifier="suite-manual">
         <container qualifier="clustered-ccl-1" mode="manual">
@@ -12,6 +14,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-ccl-2" mode="manual">
@@ -25,6 +28,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="hotrod-rolling-upgrade-1" mode="manual">
@@ -37,6 +41,7 @@
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="hotrod-rolling-upgrade-2" mode="manual">
@@ -50,6 +55,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="rest-rolling-upgrade-1" mode="manual">
@@ -61,6 +67,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="rest-rolling-upgrade-2" mode="manual">
@@ -74,6 +81,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-jdbc" mode="manual">
@@ -83,6 +91,7 @@
                 <property name="managementAddress">${node0.ip}</property>
                 <property name="serverConfig">examples/clustered-jdbc.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-storage-only-1" mode="manual">
@@ -94,6 +103,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-storage-only-2" mode="manual">
@@ -107,6 +117,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-topology-1" mode="manual">
@@ -118,6 +129,7 @@
                 <property name="serverConfig">examples/clustered-topology.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-topology-2" mode="manual">
@@ -136,6 +148,7 @@
                     -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip}
                 </property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-topology-3" mode="manual">
@@ -154,30 +167,33 @@
                     -Djboss.bind.address.management=${node2.ip} -Djboss.bind.address=${node2.ip}
                 </property>
                 <property name="waitForPorts">11411 11422 8280</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
-        <container qualifier="clustered-two-nodes-1" mode="manual">
+        <container qualifier="clustered-1" mode="manual">
             <configuration>
                 <property name="javaHome">${server.jvm}</property>
                 <property name="jbossHome">${server1.dist}</property>
                 <property name="managementAddress">${node0.ip}</property>
-                <property name="serverConfig">examples/clustered-two-nodes.xml</property>
+                <property name="serverConfig">testsuite/clustered-1.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
-        <container qualifier="clustered-two-nodes-2" mode="manual">
+        <container qualifier="clustered-2" mode="manual">
             <configuration>
                 <property name="javaHome">${server.jvm}</property>
                 <property name="jbossHome">${server2.dist}</property>
                 <property name="managementAddress">${node1.ip}</property>
-                <property name="serverConfig">examples/clustered-two-nodes2.xml</property>
+                <property name="serverConfig">testsuite/clustered-2.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1 -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip}
                     -Djboss.socket.binding.port-offset=100
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-xsite-1" mode="manual">
@@ -189,6 +205,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-xsite-2" mode="manual">
@@ -202,6 +219,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-xsite-3" mode="manual">
@@ -215,6 +233,7 @@
                 </property>
                 <property name="managementPort">10190</property>
                 <property name="waitForPorts">11411 11422 8280</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="standalone-fcs-local" mode="manual">
@@ -225,6 +244,7 @@
                 <property name="serverConfig">examples/standalone-fcs-local.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="standalone-hotrod-multiple" mode="manual">
@@ -235,6 +255,7 @@
                 <property name="serverConfig">examples/standalone-hotrod-multiple.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="waitForPorts">11222 11223 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="standalone-rcs-local-1" mode="manual">
@@ -246,6 +267,7 @@
                 <property name="serverConfig">examples/standalone-rcs-local.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="standalone-rcs-local-2" mode="manual">
@@ -259,6 +281,7 @@
                     -Djboss.socket.binding.port-offset=100
                 </property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="standalone-hotrod-ssl" mode="manual">
@@ -269,6 +292,7 @@
                 <property name="serverConfig">examples/standalone-hotrod-ssl.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="waitForPorts">11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="standalone-leveldb-cs-local" mode="manual">
@@ -279,6 +303,7 @@
                 <property name="serverConfig">examples/standalone-leveldb-cs-local.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="standalone-compatibility-mode" mode="manual">
@@ -289,6 +314,7 @@
                 <property name="serverConfig">examples/standalone-compatibility-mode.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="waitForPorts">11222 8080 11211</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="jmx-management-1" mode="manual">
@@ -300,6 +326,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="jmx-management-2" mode="manual">
@@ -313,61 +340,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
-            </configuration>
-        </container>
-        <container qualifier="remote-query" mode="manual">
-            <configuration>
-                <property name="javaHome">${server.jvm}</property>
-                <property name="jbossHome">${server1.dist}</property>
-                <property name="managementAddress">${node0.ip}</property>
-                <property name="serverConfig">testsuite/standalone-with-indexing.xml</property>
-                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
-                <property name="managementPort">9990</property>
-                <property name="waitForPorts">11222 8080</property>
-            </configuration>
-        </container>
-        <container qualifier="remote-query-infinispan-dir" mode="manual">
-            <configuration>
-                <property name="javaHome">${server.jvm}</property>
-                <property name="jbossHome">${server1.dist}</property>
-                <property name="serverConfig">testsuite/clustered-with-indexing.xml</property>
-                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0</property>
-                <property name="managementPort">9990</property>
-                <property name="waitForPorts">11222 8080</property>
-            </configuration>
-        </container>
-        <container qualifier="clustered-indexless-query-1" mode="manual">
-            <configuration>
-                <property name="javaHome">${server.jvm}</property>
-                <property name="jbossHome">${server1.dist}</property>
-                <property name="managementAddress">${node0.ip}</property>
-                <property name="serverConfig">testsuite/clustered-indexless-query-1.xml</property>
-                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
-                <property name="managementPort">9990</property>
-                <property name="waitForPorts">11211 11222 8080</property>
-            </configuration>
-        </container>
-        <container qualifier="clustered-indexless-query-2" mode="manual">
-            <configuration>
-                <property name="javaHome">${server.jvm}</property>
-                <property name="jbossHome">${server2.dist}</property>
-                <property name="managementAddress">${node1.ip}</property>
-                <property name="serverConfig">testsuite/clustered-indexless-query-2.xml</property>
-                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1 -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip}
-                    -Djboss.socket.binding.port-offset=100
-                </property>
-                <property name="managementPort">10090</property>
-                <property name="waitForPorts">11311 11322 8180</property>
-            </configuration>
-        </container>
-        <container qualifier="remote-query-keySet" mode="manual">
-            <configuration>
-                <property name="javaHome">${server.jvm}</property>
-                <property name="jbossHome">${server1.dist}</property>
-                <property name="serverConfig">testsuite/distributed-with-indexing.xml</property>
-                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0</property>
-                <property name="managementPort">9990</property>
-                <property name="waitForPorts">11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="leveldb" mode="manual">
@@ -381,6 +354,7 @@
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="asymmetric-cluster-1" mode="manual">
@@ -392,6 +366,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="asymmetric-cluster-2" mode="manual">
@@ -405,6 +380,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="rest-security-basic" mode="manual">
@@ -431,6 +407,7 @@
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="rest-security-digest" mode="manual">
@@ -444,6 +421,7 @@
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="standalone-rcs-local" mode="manual">
@@ -457,6 +435,7 @@
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="standalone-rcs-remote" mode="manual">
@@ -471,6 +450,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-encrypt-1" mode="manual">
@@ -483,6 +463,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
                 </property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clustered-encrypt-2" mode="manual">
@@ -496,6 +477,7 @@
                     -Djboss.socket.binding.port-offset=100
                 </property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="suppress-state-transfer-1" mode="manual">
@@ -507,6 +489,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="suppress-state-transfer-2" mode="manual">
@@ -520,6 +503,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="suppress-state-transfer-3" mode="manual">
@@ -533,30 +517,34 @@
                 </property>
                 <property name="managementPort">10190</property>
                 <property name="waitForPorts">11411 11422 8280</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
-        <container qualifier="transport-stack-1" mode="manual">
+        <container qualifier="transport-stack-tcp" mode="manual">
             <configuration>
                 <property name="javaHome">${server.jvm}</property>
                 <property name="jbossHome">${server1.dist}</property>
                 <property name="managementAddress">${node0.ip}</property>
                 <property name="serverConfig">testsuite/clustered-transport-stack.xml</property>
-                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
+                    -Djboss.default.jgroups.stack=tcp</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
-        <container qualifier="transport-stack-2" mode="manual">
+        <container qualifier="transport-stack-udp" mode="manual">
             <configuration>
                 <property name="javaHome">${server.jvm}</property>
                 <property name="jbossHome">${server2.dist}</property>
                 <property name="managementAddress">${node1.ip}</property>
                 <property name="serverConfig">testsuite/clustered-transport-stack.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1 -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip}
-                    -Djboss.socket.binding.port-offset=100
+                    -Djboss.socket.binding.port-offset=100 -Djboss.default.jgroups.stack=udp
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="standalone-filecs" mode="manual">
@@ -567,6 +555,7 @@
                 <property name="serverConfig">testsuite/standalone-filecs.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="eviction" mode="manual">
@@ -578,6 +567,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="standalone-customcs" mode="manual">
@@ -589,6 +579,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="expiration-1" mode="manual">
@@ -600,6 +591,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="expiration-2" mode="manual">
@@ -613,8 +605,23 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
+
+        <container qualifier="jdbc" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="serverConfig">testsuite/jdbc.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
+                <property name="managementPort">9990</property>
+                <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+
         <container qualifier="jdbc-cachestore-1" mode="manual">
             <configuration>
                 <property name="javaHome">${server.jvm}</property>
@@ -624,6 +631,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="jdbc-cachestore-2" mode="manual">
@@ -637,6 +645,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="l1-1" mode="manual">
@@ -648,6 +657,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="l1-2" mode="manual">
@@ -661,6 +671,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="cachecontainer" mode="manual">
@@ -672,6 +683,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11222 11223 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clusteredcache-1" mode="manual">
@@ -683,6 +695,7 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="clusteredcache-2" mode="manual">
@@ -695,9 +708,231 @@
                     -Djboss.socket.binding.port-offset=100</property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="hotrodAuthClustered" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="serverConfig">testsuite/hotrod-auth-clustered.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
+                    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+                </property>
+                <property name="managementPort">9990</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="hotrodAuthClustered-2" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server2.dist}</property>
+                <property name="managementAddress">${node1.ip}</property>
+                <property name="serverConfig">testsuite/hotrod-auth-clustered.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1 -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip}
+                    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true -Djboss.socket.binding.port-offset=100
+                </property>
+                <property name="managementPort">10090</property>
+                <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="hotrodAuthKrb" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="serverConfig">testsuite/hotrod-auth-krb.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
+                    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+                </property>
+                <property name="managementPort">9990</property>
+                <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="hotrodAuthQop" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="serverConfig">testsuite/hotrod-auth-qop.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
+                    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+                </property>
+                <property name="managementPort">9990</property>
+                <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="hotrodAuthLdap" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="serverConfig">testsuite/hotrod-auth-ldap.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
+                    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+                </property>
+                <property name="managementPort">9990</property>
+                <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="hotrodAuthLdapOverSsl" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="serverConfig">testsuite/hotrod-auth-ldap-ssl.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
+                    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+                </property>
+                <property name="managementPort">9990</property>
+                <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="hotrodAuthzLdap" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="serverConfig">testsuite/hotrod-authz-ldap.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
+                    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+                </property>
+                <property name="managementPort">9990</property>
+                <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="clustered-sasl-md5-1" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="managementPort">9990</property>
+                <property name="serverConfig">testsuite/clustered-with-sasl-md5-0.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip} -Dsasl.username=test -Dsasl.password=heslo -Dsasl.realm=testRealm
+                </property>
+                <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="clustered-sasl-md5-2" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server2.dist}</property>
+                <property name="managementAddress">${node1.ip}</property>
+                <property name="managementPort">10090</property>
+                <property name="serverConfig">testsuite/clustered-with-sasl-md5-1.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1 -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip} -Dsasl.username=test -Dsasl.password=heslo -Dsasl.realm=testRealm
+                    -Djboss.socket.binding.port-offset=100
+                </property>
+                <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="clustered-sasl-krb-1" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="managementPort">9990</property>
+                <property name="serverConfig">testsuite/clustered-with-sasl-krb-0.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
+                </property>
+                <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="clustered-sasl-krb-2" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server2.dist}</property>
+                <property name="managementAddress">${node1.ip}</property>
+                <property name="managementPort">10090</property>
+                <property name="serverConfig">testsuite/clustered-with-sasl-krb-1.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1 -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip}
+                    -Djboss.socket.binding.port-offset=100
+                </property>
+                <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="another-clustered-sasl-md5-2" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server2.dist}</property>
+                <property name="managementAddress">${node1.ip}</property>
+                <property name="managementPort">10090</property>
+                <property name="serverConfig">testsuite/clustered-with-sasl-md5-1.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=another_node1 -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip} -Dsasl.username=test -Dsasl.password=heslo -Dsasl.realm=testRealm
+                    -Djboss.socket.binding.port-offset=100
+                </property>
+                <property name="waitForPorts">11311 11322 8180</property>
+            </configuration>
+        </container>
+        <container qualifier="hotrodAuth" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="serverConfig">testsuite/hotrod-auth.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
+                    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+                </property>
+                <property name="managementPort">9990</property>
+                <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
     </group>
+
+    <group qualifier="queries">
+        <container qualifier="remote-query" mode="suite">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="serverConfig">testsuite/clustered-indexing.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}</property>
+                <property name="managementPort">9990</property>
+                <property name="waitForPorts">11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <!-- used only in RemoteQueryDescriptorIT -->
+        <container qualifier="clustered-indexless-descriptor-2" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server2.dist}</property>
+                <property name="managementAddress">${node1.ip}</property>
+                <property name="serverConfig">testsuite/clustered-indexing.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1 -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip}
+                    -Djboss.socket.binding.port-offset=100
+                </property>
+                <property name="managementPort">10090</property>
+                <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+        <container qualifier="remote-query-security" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server3.dist}</property>
+                <property name="managementAddress">${node2.ip}</property>
+                <property name="serverConfig">testsuite/clustered-indexing-secured.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node2 -Djboss.bind.address.management=${node2.ip} -Djboss.bind.address=${node2.ip} -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true -Djboss.socket.binding.port-offset=200</property>
+                <property name="managementPort">10190</property>
+                <property name="waitForPorts">11422 8280</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+    </group>
+
     <group qualifier="suite-client-local">
         <container qualifier="container1" mode="suite">
             <configuration>
@@ -710,6 +945,7 @@
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="container2" mode="manual">
@@ -723,6 +959,7 @@
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
     </group>
@@ -738,6 +975,7 @@
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="container2" mode="suite">
@@ -752,6 +990,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
     </group>
@@ -767,6 +1006,7 @@
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="container2" mode="suite">
@@ -781,6 +1021,7 @@
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
     </group>
@@ -791,37 +1032,72 @@
                 <property name="javaHome">${server.jvm}</property>
                 <property name="jbossHome">${server1.dist}</property>
                 <property name="managementAddress">${node0.ip}</property>
+                <property name="allowConnectingToRunningServer">true</property>
                 <property name="serverConfig">examples/standalone-hotrod-rolling-upgrade.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="hotrod-rolling-upgrade-2-old" mode="manual">
             <configuration>
                 <property name="javaHome">${server.jvm}</property>
                 <property name="jbossHome">${server.old.dist}</property>
+                <property name="allowConnectingToRunningServer">true</property>
                 <property name="serverConfig">standalone.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1 -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip}
                     -Djboss.socket.binding.port-offset=100
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
+         <!--REST Rolling Upgrades -->
+        <container qualifier="rest-rolling-upgrade-1" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server1.dist}</property>
+                <property name="allowConnectingToRunningServer">true</property>
+                <property name="serverConfig">examples/standalone-rest-rolling-upgrade.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0
+                -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+                </property>
+                <property name="managementPort">9990</property>
+                <property name="waitForPorts">11211 11222 8080</property>
+            </configuration>
+        </container>
+        <container qualifier="rest-rolling-upgrade-2-old" mode="manual">
+            <configuration>
+                <property name="javaHome">${server.jvm}</property>
+                <property name="jbossHome">${server.old.dist}</property>
+                <property name="serverConfig">standalone.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1
+                -Djboss.socket.binding.port-offset=100
+                </property>
+                <property name="managementPort">10090</property>
+                <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
+            </configuration>
+        </container>
+    </group>
+    <group qualifier="suite-rollups-manual-dist">
         <!-- Dist case, source: node0 and node1, targets: node2 and node3 -->
         <container qualifier="hotrod-rolling-upgrade-1-dist" mode="manual">
             <configuration>
                 <property name="javaHome">${server.jvm}</property>
                 <property name="jbossHome">${server1.dist}</property>
                 <property name="managementAddress">${node0.ip}</property>
+                <property name="allowConnectingToRunningServer">true</property>
                 <property name="serverConfig">examples/clustered-hotrod-rolling-upgrade.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
                     -Dremote.destination.port=11422
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="hotrod-rolling-upgrade-2-dist" mode="manual">
@@ -829,12 +1105,14 @@
                 <property name="javaHome">${server.jvm}</property>
                 <property name="jbossHome">${server2.dist}</property>
                 <property name="managementAddress">${node1.ip}</property>
+                <property name="allowConnectingToRunningServer">true</property>
                 <property name="serverConfig">examples/clustered-hotrod-rolling-upgrade.xml</property>
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1 -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip}
                     -Djboss.socket.binding.port-offset=100 -Dremote.destination.port=11522
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="hotrod-rolling-upgrade-3-old-dist" mode="manual">
@@ -847,6 +1125,7 @@
                 </property>
                 <property name="managementPort">10190</property>
                 <property name="waitForPorts">11411 11422 8280</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
         <container qualifier="hotrod-rolling-upgrade-4-old-dist" mode="manual">
@@ -857,63 +1136,67 @@
                 <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node3 -Djboss.bind.address.management=${node3.ip} -Djboss.bind.address=${node3.ip}
                     -Djboss.socket.binding.port-offset=300
                 </property>
-                <property name="managementPort">10299</property>
+                <property name="managementPort">10290</property>
                 <property name="waitForPorts">11511 11522 8380</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
-        <!-- REST Rolling Upgrades -->
-        <container qualifier="rest-rolling-upgrade-1" mode="manual">
+        <!-- REST -->
+        <!-- Dist case, source: node0 and node1, targets: node2 and node3 -->
+        <container qualifier="rest-rolling-upgrade-1-dist" mode="manual">
             <configuration>
                 <property name="javaHome">${server.jvm}</property>
                 <property name="jbossHome">${server1.dist}</property>
-                <property name="serverConfig">examples/standalone-rest-rolling-upgrade.xml</property>
-                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0
-                    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+                <property name="managementAddress">${node0.ip}</property>
+                <property name="allowConnectingToRunningServer">true</property>
+                <property name="serverConfig">examples/clustered-rest-rolling-upgrade.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
+                    -Dremote.destination.port=8280
                 </property>
                 <property name="managementPort">9990</property>
                 <property name="waitForPorts">11211 11222 8080</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
-        <container qualifier="rest-rolling-upgrade-2-old" mode="manual">
+        <container qualifier="rest-rolling-upgrade-2-dist" mode="manual">
             <configuration>
                 <property name="javaHome">${server.jvm}</property>
-                <property name="jbossHome">${server.old.dist}</property>
-                <property name="serverConfig">standalone.xml</property>
-                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1
-                    -Djboss.socket.binding.port-offset=100
+                <property name="jbossHome">${server2.dist}</property>
+                <property name="managementAddress">${node1.ip}</property>
+                <property name="allowConnectingToRunningServer">true</property>
+                <property name="serverConfig">examples/clustered-rest-rolling-upgrade.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node1 -Djboss.bind.address.management=${node1.ip} -Djboss.bind.address=${node1.ip}
+                    -Djboss.socket.binding.port-offset=100 -Dremote.destination.port=8380
                 </property>
                 <property name="managementPort">10090</property>
                 <property name="waitForPorts">11311 11322 8180</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
-    </group>
-    <group qualifier="suite-security">
-        <container qualifier="hotrodAuth" mode="suite">
+        <container qualifier="rest-rolling-upgrade-3-old-dist" mode="manual">
             <configuration>
                 <property name="javaHome">${server.jvm}</property>
-                <property name="jbossHome">${server1.dist}</property>
-                <property name="managementAddress">${node0.ip}</property>
-                <property name="serverConfig">testsuite/hotrod-auth.xml</property>
-                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
-                    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+                <property name="jbossHome">${server2.old.dist}</property>
+                <property name="serverConfig">clustered.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node2 -Djboss.bind.address.management=${node2.ip} -Djboss.bind.address=${node2.ip}
+                    -Djboss.socket.binding.port-offset=200
                 </property>
-                <property name="managementPort">9990</property>
-                <property name="waitForPorts">11211 11222 8080</property>
+                <property name="managementPort">10190</property>
+                <property name="waitForPorts">11411 11422 8280</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
-    </group>
-    <group qualifier="suite-security-manual">
-        <container qualifier="hotrodAuthKrb" mode="manual">
+        <container qualifier="rest-rolling-upgrade-4-old-dist" mode="manual">
             <configuration>
                 <property name="javaHome">${server.jvm}</property>
-                <property name="jbossHome">${server1.dist}</property>
-                <property name="managementAddress">${node0.ip}</property>
-                <property name="serverConfig">testsuite/hotrod-auth-krb.xml</property>
-                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node0 -Djboss.bind.address.management=${node0.ip} -Djboss.bind.address=${node0.ip}
-                    -Dorg.apache.tomcat.util.buf.UDecoder.ALLOW_ENCODED_SLASH=true
+                <property name="jbossHome">${server3.old.dist}</property>
+                <property name="serverConfig">clustered.xml</property>
+                <property name="javaVmArguments">${server.jvm.args} -Djboss.node.name=node3 -Djboss.bind.address.management=${node3.ip} -Djboss.bind.address=${node3.ip}
+                    -Djboss.socket.binding.port-offset=300
                 </property>
-                <property name="managementPort">9990</property>
-                <property name="waitForPorts">11211 11222 8080</property>
+                <property name="managementPort">10290</property>
+                <property name="waitForPorts">11511 11522 8380</property>
+                <property name="jmxDomain">${server.jmx.domain}</property>
             </configuration>
         </container>
     </group>

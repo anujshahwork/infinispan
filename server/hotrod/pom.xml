@@ -4,7 +4,7 @@
    <parent>
       <groupId>org.infinispan</groupId>
       <artifactId>infinispan-server-parent</artifactId>
-      <version>7.0.0-SNAPSHOT</version>
+      <version>8.0.0-SNAPSHOT</version>
       <relativePath>../pom.xml</relativePath>
    </parent>
 
@@ -12,6 +12,10 @@
    <packaging>bundle</packaging>
    <name>Infinispan Hot Rod Server</name>
    <description>Infinispan Hot Rod Server</description>
+
+   <properties>
+         <module.skipComponentMetaDataProcessing>false</module.skipComponentMetaDataProcessing>
+   </properties>
 
    <dependencies>
        <dependency>
@@ -34,6 +38,11 @@
          <optional>true</optional>
       </dependency>
       <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-scripting</artifactId>
+         <optional>true</optional>
+      </dependency>
+      <dependency>
          <groupId>org.jboss.sasl</groupId>
          <artifactId>jboss-sasl</artifactId>
          <scope>test</scope>
@@ -41,7 +50,6 @@
    </dependencies>
 
    <build>
-      <finalName>infinispan</finalName>
       <sourceDirectory>src/main/scala</sourceDirectory>
       <testSourceDirectory>src/test/scala</testSourceDirectory>
 
@@ -49,6 +57,19 @@
          <plugin>
             <groupId>org.scala-tools</groupId>
             <artifactId>maven-scala-plugin</artifactId>
+            <executions>
+               <execution>
+                  <id>compile</id>
+                  <phase>compile</phase>
+               </execution>
+               <execution>
+                  <id>test-compile</id>
+                  <phase>test-compile</phase>
+               </execution>
+               <execution>
+                  <phase>process-resources</phase>
+               </execution>
+            </executions>
          </plugin>
          <plugin>
             <groupId>org.apache.felix</groupId>

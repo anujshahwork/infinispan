@@ -14,10 +14,12 @@ import org.infinispan.commons.CacheException;
 import org.infinispan.commons.marshall.StreamingMarshaller;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.notifications.cachemanagerlistener.CacheManagerNotifier;
+import org.infinispan.remoting.inboundhandler.PerCacheInboundInvocationHandler;
 import org.infinispan.remoting.responses.ResponseGenerator;
 import org.infinispan.statetransfer.StateTransferLock;
 import org.infinispan.statetransfer.StateTransferManager;
-import org.infinispan.transaction.totalorder.TotalOrderManager;
+import org.infinispan.stats.ClusterCacheStats;
+import org.infinispan.transaction.TransactionTable;
 import org.infinispan.util.TimeService;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
@@ -45,8 +47,8 @@ public class ComponentRegistry extends AbstractComponentRegistry {
    private StateTransferManager stateTransferManager;
    private ResponseGenerator responseGenerator;
    private CommandsFactory commandsFactory;
-   private TotalOrderManager totalOrderManager;
    private StateTransferLock stateTransferLock;
+   private PerCacheInboundInvocationHandler inboundInvocationHandler;
 
    protected final WeakReference<ClassLoader> defaultClassLoader;
 
@@ -64,7 +66,7 @@ public class ComponentRegistry extends AbstractComponentRegistry {
     */
    public ComponentRegistry(String cacheName, Configuration configuration, AdvancedCache<?, ?> cache,
                             GlobalComponentRegistry globalComponents, ClassLoader defaultClassLoader) {
-      this.defaultClassLoader = new WeakReference<ClassLoader>(defaultClassLoader);
+      this.defaultClassLoader = new WeakReference<>(defaultClassLoader);
       try {
          this.cacheName = cacheName;
          if (cacheName == null) throw new CacheConfigurationException("Cache name cannot be null!");
@@ -151,7 +153,7 @@ public class ComponentRegistry extends AbstractComponentRegistry {
       }
    }
 
-   private <T> boolean isGlobal(String componentClassName, String name, boolean nameIsFQCN) {
+   private boolean isGlobal(String componentClassName, String name, boolean nameIsFQCN) {
       if (!nameIsFQCN) {
          for (String s : KnownComponentNames.PER_CACHE_COMPONENT_NAMES) {
             if (s.equals(name))
@@ -290,6 +292,12 @@ public class ComponentRegistry extends AbstractComponentRegistry {
       return stateTransferLock;
    }
 
+   /**
+    * Caching shortcut for #getComponent(PerCacheInboundInvocationHandler.class);
+    */
+   public PerCacheInboundInvocationHandler getPerCacheInboundInvocationHandler() {
+      return inboundInvocationHandler;
+   }
 
    /**
     * Invoked last after all services are wired
@@ -299,8 +307,9 @@ public class ComponentRegistry extends AbstractComponentRegistry {
       stateTransferManager = getOrCreateComponent(StateTransferManager.class);
       responseGenerator = getOrCreateComponent(ResponseGenerator.class);
       commandsFactory = getLocalComponent(CommandsFactory.class);
-      totalOrderManager = getOrCreateComponent(TotalOrderManager.class);
       stateTransferLock = getOrCreateComponent(StateTransferLock.class);
+      inboundInvocationHandler = getOrCreateComponent(PerCacheInboundInvocationHandler.class);
+      getOrCreateComponent(ClusterCacheStats.class);  //no need to save ref to a field, just initialize component
    }
 
    @Override
@@ -308,8 +317,8 @@ public class ComponentRegistry extends AbstractComponentRegistry {
       return globalComponents.getComponentMetadataRepo();
    }
 
-   public final TotalOrderManager getTotalOrderManager() {
-      return totalOrderManager;
+   public final TransactionTable getTransactionTable() {
+      return getComponent(org.infinispan.transaction.impl.TransactionTable.class);
    }
 
 }

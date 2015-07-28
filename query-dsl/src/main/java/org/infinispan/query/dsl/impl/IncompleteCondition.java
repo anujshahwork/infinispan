@@ -1,9 +1,11 @@
 package org.infinispan.query.dsl.impl;
 
+import org.infinispan.query.dsl.Expression;
 import org.infinispan.query.dsl.FilterConditionBeginContext;
 import org.infinispan.query.dsl.FilterConditionContext;
 import org.infinispan.query.dsl.FilterConditionEndContext;
 import org.infinispan.query.dsl.QueryBuilder;
+import org.infinispan.query.dsl.QueryFactory;
 
 /**
  * @author anistor@redhat.com
@@ -15,7 +17,8 @@ class IncompleteCondition extends BaseCondition implements FilterConditionBeginC
 
    private BaseCondition filterCondition;
 
-   IncompleteCondition() {
+   IncompleteCondition(QueryFactory queryFactory) {
+      super(queryFactory);
    }
 
    @Override
@@ -36,16 +39,21 @@ class IncompleteCondition extends BaseCondition implements FilterConditionBeginC
    }
 
    @Override
-   public FilterConditionEndContext having(String attributePath) {
+   public FilterConditionEndContext having(Expression expression) {
       if (filterCondition != null) {
          throw new IllegalStateException("Sentence already started. Cannot use 'having(..)' again.");
       }
-      AttributeCondition attributeCondition = new AttributeCondition(attributePath);
+      AttributeCondition attributeCondition = new AttributeCondition(queryFactory, expression);
       attributeCondition.setNegated(isNegated);
       attributeCondition.setQueryBuilder(queryBuilder);
       attributeCondition.setParent(this);
       filterCondition = attributeCondition;
       return attributeCondition;
+   }
+
+   @Override
+   public FilterConditionEndContext having(String attributePath) {
+      return having(Expression.property(attributePath));
    }
 
    @Override
@@ -60,13 +68,25 @@ class IncompleteCondition extends BaseCondition implements FilterConditionBeginC
 
    @Override
    public FilterConditionContext not(FilterConditionContext fcc) {
+      if (fcc == null) {
+         throw new IllegalArgumentException("Argument cannot be null");
+      }
+
       if (filterCondition != null) {
          throw new IllegalStateException("Sentence already started. Cannot use 'not(..)' again.");
       }
-      BaseCondition baseCondition = (BaseCondition) fcc;
+
+      BaseCondition baseCondition = ((BaseCondition) fcc).getRoot();
+      if (baseCondition.queryFactory != queryFactory) {
+         throw new IllegalArgumentException("The given condition was created by a different factory");
+      }
+      if (baseCondition.queryBuilder != null) {
+         throw new IllegalArgumentException("The given condition is already in use by another builder");
+      }
+
       isNegated = !isNegated;
       if (isNegated) {
-         NotCondition notCondition = new NotCondition(baseCondition);
+         NotCondition notCondition = new NotCondition(queryFactory, baseCondition);
          notCondition.setQueryBuilder(queryBuilder);
          filterCondition = notCondition;
       } else {

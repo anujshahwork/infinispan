@@ -1,5 +1,7 @@
 package org.infinispan.client.hotrod.impl.protocol;
 
+import org.infinispan.client.hotrod.Flag;
+import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.event.ClientCacheEntryCreatedEvent;
 import org.infinispan.client.hotrod.event.ClientCacheEntryCustomEvent;
 import org.infinispan.client.hotrod.event.ClientCacheEntryModifiedEvent;
@@ -7,6 +9,7 @@ import org.infinispan.client.hotrod.event.ClientCacheEntryRemovedEvent;
 import org.infinispan.client.hotrod.event.ClientEvent;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.exceptions.InvalidResponseException;
+import org.infinispan.client.hotrod.exceptions.RemoteIllegalLifecycleStateException;
 import org.infinispan.client.hotrod.exceptions.RemoteNodeSuspectException;
 import org.infinispan.client.hotrod.impl.transport.Transport;
 import org.infinispan.client.hotrod.logging.Log;
@@ -14,12 +17,14 @@ import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.client.hotrod.marshall.MarshallerUtil;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.util.Either;
+import org.infinispan.commons.util.Util;
 
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -44,6 +49,42 @@ public class Codec20 implements Codec, HotRodConstants {
       return writeHeader(transport, params, HotRodConstants.VERSION_20);
    }
 
+   @Override
+   public void writeClientListenerParams(Transport transport, ClientListener clientListener,
+         byte[][] filterFactoryParams, byte[][] converterFactoryParams) {
+      transport.writeByte((short)(clientListener.includeCurrentState() ? 1 : 0));
+      writeNamedFactory(transport, clientListener.filterFactoryName(), filterFactoryParams);
+      writeNamedFactory(transport, clientListener.converterFactoryName(), converterFactoryParams);
+   }
+
+   @Override
+   public void writeExpirationParams(Transport transport, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit) {
+      if (!CodecUtils.isIntCompatible(lifespan)) {
+         log.warn("Lifespan value greater than the max supported size (Integer.MAX_VALUE), this can cause precision loss");
+      }
+      if (!CodecUtils.isIntCompatible(maxIdle)) {
+         log.warn("MaxIdle value greater than the max supported size (Integer.MAX_VALUE), this can cause precision loss");
+      }
+      int lifespanSeconds = CodecUtils.toSeconds(lifespan, lifespanTimeUnit);
+      int maxIdleSeconds = CodecUtils.toSeconds(maxIdle, maxIdleTimeUnit);
+      transport.writeVInt(lifespanSeconds);
+      transport.writeVInt(maxIdleSeconds);
+   }
+
+   private void writeNamedFactory(Transport transport, String factoryName, byte[][] params) {
+      transport.writeString(factoryName);
+      if (!factoryName.isEmpty()) {
+         // A named factory was written, how many parameters?
+         if (params != null) {
+            transport.writeByte((short) params.length);
+            for (byte[] param : params)
+               transport.writeArray(param);
+         } else {
+            transport.writeByte((short) 0);
+         }
+      }
+   }
+
    protected HeaderParams writeHeader(
          Transport transport, HeaderParams params, byte version) {
       transport.writeByte(HotRodConstants.REQUEST_MAGIC);
@@ -57,8 +98,8 @@ public class Codec20 implements Codec, HotRodConstants {
       transport.writeVInt(params.topologyId.get());
 
       if (trace)
-         getLog().tracef("Wrote header for message %d. Operation code: %#04x. Flags: %#x",
-            params.messageId, params.opCode, joinedFlags);
+         getLog().tracef("Wrote header for messageId=%d to %s. Operation code: %#04x. Flags: %#x",
+            params.messageId, transport, params.opCode, joinedFlags);
 
       return params;
    }
@@ -103,7 +144,7 @@ public class Codec20 implements Codec, HotRodConstants {
       return readPartialEvent(transport, expectedListenerId, marshaller, eventTypeId);
    }
 
-   private ClientEvent readPartialEvent(Transport transport, byte[] expectedListenerId, Marshaller marshaller, short eventTypeId) {
+   protected ClientEvent readPartialEvent(Transport transport, byte[] expectedListenerId, Marshaller marshaller, short eventTypeId) {
       short status = transport.readByte();
       transport.readByte(); // ignore, no topology expected
       ClientEvent.Type eventType;
@@ -128,23 +169,24 @@ public class Codec20 implements Codec, HotRodConstants {
          throw log.unexpectedListenerId(printArray(listenerId), printArray(expectedListenerId));
 
       short isCustom = transport.readByte();
+      boolean isRetried = transport.readByte() == 1 ? true : false;
 
       if (isCustom == 1) {
          final Object eventData = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
-         return createCustomEvent(eventData, eventType);
+         return createCustomEvent(eventData, eventType, isRetried);
       } else {
          switch (eventType) {
             case CLIENT_CACHE_ENTRY_CREATED:
                Object createdKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
                long createdDataVersion = transport.readLong();
-               return createCreatedEvent(createdKey, createdDataVersion);
+               return createCreatedEvent(createdKey, createdDataVersion, isRetried);
             case CLIENT_CACHE_ENTRY_MODIFIED:
                Object modifiedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
                long modifiedDataVersion = transport.readLong();
-               return createModifiedEvent(modifiedKey, modifiedDataVersion);
+               return createModifiedEvent(modifiedKey, modifiedDataVersion, isRetried);
             case CLIENT_CACHE_ENTRY_REMOVED:
                Object removedKey = MarshallerUtil.bytes2obj(marshaller, transport.readArray());
-               return createRemovedEvent(removedKey);
+               return createRemovedEvent(removedKey, isRetried);
             default:
                throw log.unknownEvent(eventTypeId);
          }
@@ -167,10 +209,23 @@ public class Codec20 implements Codec, HotRodConstants {
       }
    }
 
-   private ClientEvent createRemovedEvent(final Object key) {
+   @Override
+   public byte[] returnPossiblePrevValue(Transport transport, short status, Flag[] flags) {
+      if (status == SUCCESS_WITH_PREVIOUS || status == NOT_EXECUTED_WITH_PREVIOUS) {
+         byte[] bytes = transport.readArray();
+         if (log.isTraceEnabled()) log.tracef("Previous value bytes is: %s", Util.printArray(bytes, false));
+         //0-length response means null
+         return bytes.length == 0 ? null : bytes;
+      } else {
+         return null;
+      }
+   }
+
+   protected ClientEvent createRemovedEvent(final Object key, final boolean isRetried) {
       return new ClientCacheEntryRemovedEvent() {
          @Override public Object getKey() { return key; }
          @Override public Type getType() { return Type.CLIENT_CACHE_ENTRY_REMOVED; }
+         @Override public boolean isCommandRetried() { return isRetried; }
          @Override
          public String toString() {
             return "ClientCacheEntryRemovedEvent(" + "key=" + key + ")";
@@ -178,11 +233,12 @@ public class Codec20 implements Codec, HotRodConstants {
       };
    }
 
-   private ClientCacheEntryModifiedEvent createModifiedEvent(final Object key, final long dataVersion) {
+   protected ClientCacheEntryModifiedEvent createModifiedEvent(final Object key, final long dataVersion, final boolean isRetried) {
       return new ClientCacheEntryModifiedEvent() {
          @Override public Object getKey() { return key; }
          @Override public long getVersion() { return dataVersion; }
          @Override public Type getType() { return Type.CLIENT_CACHE_ENTRY_MODIFIED; }
+         @Override public boolean isCommandRetried() { return isRetried; }
          @Override
          public String toString() {
             return "ClientCacheEntryModifiedEvent(" + "key=" + key
@@ -191,11 +247,12 @@ public class Codec20 implements Codec, HotRodConstants {
       };
    }
 
-   private ClientCacheEntryCreatedEvent<Object> createCreatedEvent(final Object key, final long dataVersion) {
+   protected ClientCacheEntryCreatedEvent<Object> createCreatedEvent(final Object key, final long dataVersion, final boolean isRetried) {
       return new ClientCacheEntryCreatedEvent<Object>() {
          @Override public Object getKey() { return key; }
          @Override public long getVersion() { return dataVersion; }
          @Override public Type getType() { return Type.CLIENT_CACHE_ENTRY_CREATED; }
+         @Override public boolean isCommandRetried() { return isRetried; }
          @Override
          public String toString() {
             return "ClientCacheEntryCreatedEvent(" + "key=" + key
@@ -204,13 +261,14 @@ public class Codec20 implements Codec, HotRodConstants {
       };
    }
 
-   private ClientCacheEntryCustomEvent<Object> createCustomEvent(final Object eventData, ClientEvent.Type evenType) {
+   protected ClientCacheEntryCustomEvent<Object> createCustomEvent(final Object eventData, final ClientEvent.Type eventType, final boolean isRetried) {
       return new ClientCacheEntryCustomEvent<Object>() {
          @Override public Object getEventData() { return eventData; }
-         @Override public Type getType() { return Type.CLIENT_CACHE_ENTRY_CREATED; }
+         @Override public Type getType() { return eventType; }
+         @Override public boolean isCommandRetried() { return isRetried; }
          @Override
          public String toString() {
-            return "ClientCacheEntryCustomEvent(" + "eventData=" + eventData + ")";
+            return "ClientCacheEntryCustomEvent(" + "eventData=" + eventData + ", eventType=" + eventType + ")";
          }
       };
    }
@@ -230,7 +288,7 @@ public class Codec20 implements Codec, HotRodConstants {
       }
 
       if (trace)
-         localLog.tracef("Received response for message id: %d", receivedMessageId);
+         localLog.tracef("Received response for messageId=%d", receivedMessageId);
 
       return receivedMessageId;
    }
@@ -259,6 +317,7 @@ public class Codec20 implements Codec, HotRodConstants {
       boolean isTrace = localLog.isTraceEnabled();
       if (isTrace) localLog.tracef("Received operation status: %#x", status);
 
+      String msgFromServer;
       try {
          switch (status) {
             case HotRodConstants.INVALID_MAGIC_OR_MESSAGE_ID_STATUS:
@@ -268,22 +327,25 @@ public class Codec20 implements Codec, HotRodConstants {
             case HotRodConstants.COMMAND_TIMEOUT_STATUS:
             case HotRodConstants.UNKNOWN_VERSION_STATUS: {
                // If error, the body of the message just contains a message
-               String msgFromServer = transport.readString();
+               msgFromServer = transport.readString();
                if (status == HotRodConstants.COMMAND_TIMEOUT_STATUS && isTrace) {
                   localLog.tracef("Server-side timeout performing operation: %s", msgFromServer);
-               } if (msgFromServer.contains("SuspectException")
-                     || msgFromServer.contains("SuspectedException")) {
-                  // Handle both Infinispan's and JGroups' suspicions
-                  if (isTrace)
-                     localLog.tracef("A remote node was suspected while executing messageId=%d. " +
-                           "Check if retry possible. Message from server: %s", params.messageId, msgFromServer);
-                  // TODO: This will be better handled with its own status id in version 2 of protocol
-                  throw new RemoteNodeSuspectException(msgFromServer, params.messageId, status);
                } else {
                   localLog.errorFromServer(msgFromServer);
                }
                throw new HotRodClientException(msgFromServer, params.messageId, status);
             }
+            case HotRodConstants.ILLEGAL_LIFECYCLE_STATE:
+               msgFromServer = transport.readString();
+               throw new RemoteIllegalLifecycleStateException(msgFromServer, params.messageId, status, transport.getRemoteSocketAddress());
+            case HotRodConstants.NODE_SUSPECTED:
+               // Handle both Infinispan's and JGroups' suspicions
+               msgFromServer = transport.readString();
+               if (isTrace)
+                  localLog.tracef("A remote node was suspected while executing messageId=%d. " +
+                        "Check if retry possible. Message from server: %s", params.messageId, msgFromServer);
+
+               throw new RemoteNodeSuspectException(msgFromServer, params.messageId, status);
             default: {
                throw new IllegalStateException(String.format("Unknown status: %#04x", status));
             }
@@ -326,12 +388,14 @@ public class Codec20 implements Codec, HotRodConstants {
       short hashFunctionVersion = transport.readByte();
       int numSegments = transport.readVInt();
       SocketAddress[][] segmentOwners = new SocketAddress[numSegments][];
-      for (int i = 0; i < numSegments; i++) {
-         short numOwners = transport.readByte();
-         segmentOwners[i] = new SocketAddress[numOwners];
-         for (int j = 0; j < numOwners; j++) {
-            int memberIndex = transport.readVInt();
-            segmentOwners[i][j] = addresses[memberIndex];
+      if (hashFunctionVersion > 0) {
+         for (int i = 0; i < numSegments; i++) {
+            short numOwners = transport.readByte();
+            segmentOwners[i] = new SocketAddress[numOwners];
+            for (int j = 0; j < numOwners; j++) {
+               int memberIndex = transport.readVInt();
+               segmentOwners[i][j] = addresses[memberIndex];
+            }
          }
       }
 
@@ -340,13 +404,16 @@ public class Codec20 implements Codec, HotRodConstants {
          localLog.newTopology(transport.getRemoteSocketAddress(), newTopologyId,
                addresses.length, new HashSet<SocketAddress>(addressList));
       }
-      transport.getTransportFactory().updateServers(addressList, cacheName);
+      transport.getTransportFactory().updateServers(addressList, cacheName, false);
       if (hashFunctionVersion == 0) {
          if (trace)
             localLog.trace("Not using a consistent hash function (hash function version == 0).");
       } else {
-         transport.getTransportFactory().updateHashFunction(segmentOwners, numSegments, hashFunctionVersion, cacheName);
+         if (trace)
+            localLog.tracef("Updating client hash function with %s number of segments", numSegments);
+
       }
+      transport.getTransportFactory().updateHashFunction(segmentOwners, numSegments, hashFunctionVersion, cacheName);
    }
 
 }

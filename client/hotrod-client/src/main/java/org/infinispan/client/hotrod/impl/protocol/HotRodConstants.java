@@ -18,6 +18,9 @@ public interface HotRodConstants {
    static final byte VERSION_12 = 12;
    static final byte VERSION_13 = 13;
    static final byte VERSION_20 = 20;
+   static final byte VERSION_21 = 21;
+   static final byte VERSION_22 = 22;
+   static final byte VERSION_23 = 23;
 
    //requests
    static final byte PUT_REQUEST = 0x01;
@@ -40,6 +43,13 @@ public interface HotRodConstants {
    static final byte AUTH_REQUEST = 0x23;
    static final byte ADD_CLIENT_LISTENER_REQUEST = 0x25;
    static final byte REMOVE_CLIENT_LISTENER_REQUEST = 0x27;
+   static final byte SIZE_REQUEST = 0x29;
+   static final byte EXEC_REQUEST = 0x2B;
+   static final byte PUT_ALL_REQUEST = 0x2D;
+   static final byte GET_ALL_REQUEST = 0x2F;
+   static final byte ITERATION_START_REQUEST = 0x31;
+   static final byte ITERATION_NEXT_REQUEST = 0x33;
+   static final byte ITERATION_END_REQUEST = 0x35;
 
    //responses
    static final byte PUT_RESPONSE = 0x02;
@@ -62,6 +72,13 @@ public interface HotRodConstants {
    static final byte AUTH_RESPONSE = 0x24;
    static final byte ADD_CLIENT_LISTENER_RESPONSE = 0x26;
    static final byte REMOVE_CLIENT_LISTENER_RESPONSE = 0x28;
+   static final byte SIZE_RESPONSE = 0x2A;
+   static final byte EXEC_RESPONSE = 0x2C;
+   static final byte PUT_ALL_RESPONSE = 0x2E;
+   static final byte GET_ALL_RESPONSE = 0x30;
+   static final byte ITERATION_START_RESPONSE = 0x32;
+   static final byte ITERATION_NEXT_RESPONSE = 0x34;
+   static final byte ITERATION_END_RESPONSE = 0x36;
    static final byte ERROR_RESPONSE = 0x50;
    static final byte CACHE_ENTRY_CREATED_EVENT_RESPONSE = 0x60;
    static final byte CACHE_ENTRY_MODIFIED_EVENT_RESPONSE = 0x61;
@@ -77,6 +94,11 @@ public interface HotRodConstants {
    static final int KEY_DOES_NOT_EXIST_STATUS = 0x02;
    static final int UNKNOWN_VERSION_STATUS = 0x83;
    static final int COMMAND_TIMEOUT_STATUS = 0x86;
+   static final int NODE_SUSPECTED = 0x87;
+   static final int ILLEGAL_LIFECYCLE_STATE = 0x88;
+   static final int SUCCESS_WITH_PREVIOUS = 0x03;
+   static final int NOT_EXECUTED_WITH_PREVIOUS = 0x04;
+   static final int INVALID_ITERATION = 0x05;
 
 
    static final byte CLIENT_INTELLIGENCE_BASIC = 0x01;
@@ -88,4 +110,6 @@ public interface HotRodConstants {
 
    static final byte INFINITE_LIFESPAN = 0x01;
    static final byte INFINITE_MAXIDLE = 0x02;
+
+   static final int DEFAULT_CACHE_TOPOLOGY = -1;
 }

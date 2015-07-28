@@ -3,7 +3,6 @@ package org.infinispan.lucene;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
-import java.io.Serializable;
 import java.util.Set;
 
 import org.infinispan.commons.marshall.AbstractExternalizer;
@@ -18,10 +17,7 @@ import org.infinispan.commons.util.Util;
  * @author Sanne Grinovero
  * @since 4.0
  */
-public final class FileReadLockKey implements Serializable, IndexScopedKey {
-
-   /** The serialVersionUID */
-   private static final long serialVersionUID = 7789410500198851940L;
+public final class FileReadLockKey implements IndexScopedKey {
 
    private final String indexName;
    private final String fileName;
@@ -81,9 +77,7 @@ public final class FileReadLockKey implements Serializable, IndexScopedKey {
       if (FileReadLockKey.class != obj.getClass())
          return false;
       FileReadLockKey other = (FileReadLockKey) obj;
-      if (!fileName.equals(other.fileName))
-         return false;
-      return indexName.equals(other.indexName);
+      return fileName.equals(other.fileName) && indexName.equals(other.indexName);
    }
 
    @Override

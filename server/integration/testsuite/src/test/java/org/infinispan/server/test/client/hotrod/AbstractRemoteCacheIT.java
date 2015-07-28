@@ -1,16 +1,5 @@
 package org.infinispan.server.test.client.hotrod;
 
-
-import java.io.IOException;
-import java.io.Serializable;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-
 import org.infinispan.arquillian.core.RemoteInfinispanServer;
 import org.infinispan.client.hotrod.Flag;
 import org.infinispan.client.hotrod.MetadataValue;
@@ -18,36 +7,53 @@ import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.ServerStatistics;
 import org.infinispan.client.hotrod.VersionedValue;
+import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
+import org.infinispan.client.hotrod.event.ClientCacheEntryCreatedEvent;
+import org.infinispan.client.hotrod.event.ClientCacheEntryModifiedEvent;
+import org.infinispan.client.hotrod.event.ClientCacheEntryRemovedEvent;
+import org.infinispan.client.hotrod.event.ClientEvent;
+import org.infinispan.client.hotrod.logging.Log;
+import org.infinispan.client.hotrod.logging.LogFactory;
+import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.concurrent.NotifyingFuture;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.IOException;
+import java.io.Serializable;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
 import static org.infinispan.server.test.util.ITestUtils.sleepForSecs;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.junit.Assert.*;
 
 /**
- * Tests for HotRod client and its RemoteCache API. Subclasses must provide a way to get the list of remote HotRod
- * servers and to assert the cache is empty.
+ * Tests for HotRod client and its RemoteCache API. Subclasses must provide a
+ * way to get the list of remote HotRod servers and to assert the cache is
+ * empty.
  * <p/>
- * Subclasses may be used in Client-Server mode or Hybrid mode where HotRod server runs as a library deployed in an
- * application server.
+ * Subclasses may be used in Client-Server mode or Hybrid mode where HotRod
+ * server runs as a library deployed in an application server.
  *
  * @author Richard Achmatowicz
  * @author Martin Gencur
  * @author Jozef Vilkolak
  */
 public abstract class AbstractRemoteCacheIT {
+    private static final String TEST_CACHE_NAME = "testcache";
 
-    private final String TEST_CACHE_NAME = "testcache";
+    private static final Log log = LogFactory.getLog(AbstractRemoteCacheIT.class);
 
     protected RemoteCache remoteCache;
     protected static RemoteCacheManager remoteCacheManager = null;
@@ -119,9 +125,7 @@ public abstract class AbstractRemoteCacheIT {
     }
 
     private void clearServer(int serverIndex) {
-        while (remoteCache.size() != 0) {
-            remoteCache.clear();
-        }
+        remoteCache.clear();
     }
 
     private long numEntriesOnServer(int serverIndex) {
@@ -477,7 +481,7 @@ public abstract class AbstractRemoteCacheIT {
     public void testStats() {
         ServerStatistics remoteStats = remoteCache.stats();
         assertNotNull(remoteStats);
-        System.out.println("named stats = " + remoteStats.getStatsMap());
+        log.tracef("named stats = %s", remoteStats.getStatsMap());
     }
 
     @Test
@@ -746,7 +750,335 @@ public abstract class AbstractRemoteCacheIT {
         assertEquals(p, remoteCache.get("k1"));
     }
 
-    static class Person implements Serializable {
+    @Test
+    public void testEventReceiveBasic() {
+        final EventLogListener eventListener = new EventLogListener();
+        remoteCache.addClientListener(eventListener);
+        try {
+            expectNoEvents(eventListener);
+            // Created events
+            remoteCache.put(1, "one");
+            expectOnlyCreatedEvent(1, eventListener);
+            remoteCache.put(2, "two");
+            expectOnlyCreatedEvent(2, eventListener);
+            // Modified events
+            remoteCache.put(1, "newone");
+            expectOnlyModifiedEvent(1, eventListener);
+            // Remove events
+            remoteCache.remove(1);
+            expectOnlyRemovedEvent(1, eventListener);
+        } finally {
+            remoteCache.removeClientListener(eventListener);
+        }
+    }
+
+    @Test
+    public void testEventReceiveConditional() {
+        final EventLogListener eventListener = new EventLogListener();
+        remoteCache.addClientListener(eventListener);
+        try {
+            expectNoEvents(eventListener);
+            // Put if absent
+            remoteCache.putIfAbsent(1, "one");
+            expectOnlyCreatedEvent(1, eventListener);
+            remoteCache.putIfAbsent(1, "again");
+            expectNoEvents(eventListener);
+            // Replace
+            remoteCache.replace(1, "newone");
+            expectOnlyModifiedEvent(1, eventListener);
+            // Replace with version
+            remoteCache.replaceWithVersion(1, "one", 0);
+            expectNoEvents(eventListener);
+            VersionedValue<String> versioned = remoteCache.getVersioned(1);
+            remoteCache.replaceWithVersion(1, "one", versioned.getVersion());
+            expectOnlyModifiedEvent(1, eventListener);
+            // Remove with version
+            remoteCache.removeWithVersion(1, 0);
+            expectNoEvents(eventListener);
+            versioned = remoteCache.getVersioned(1);
+            remoteCache.removeWithVersion(1, versioned.getVersion());
+            expectOnlyRemovedEvent(1, eventListener);
+        } finally {
+            remoteCache.removeClientListener(eventListener);
+        }
+    }
+
+    @Test
+    public void testEventFilteringStatic() {
+        final StaticFilteredEventLogListener eventListener = new StaticFilteredEventLogListener();
+        remoteCache.addClientListener(eventListener);
+        try {
+            expectNoEvents(eventListener);
+            remoteCache.put(1, "one");
+            expectNoEvents(eventListener);
+            remoteCache.put(2, "two");
+            expectOnlyCreatedEvent(2, eventListener);
+            remoteCache.remove(1);
+            expectNoEvents(eventListener);
+            remoteCache.remove(2);
+            expectOnlyRemovedEvent(2, eventListener);
+        } finally {
+            remoteCache.removeClientListener(eventListener);
+        }
+    }
+
+    @Test
+    public void testEventFilteringDynamic() {
+        final DynamicFilteredEventLogListener eventListener = new DynamicFilteredEventLogListener();
+        remoteCache.addClientListener(eventListener, new Object[]{3}, null);
+        try {
+            expectNoEvents(eventListener);
+            remoteCache.put(1, "one");
+            expectNoEvents(eventListener);
+            remoteCache.put(2, "two");
+            expectNoEvents(eventListener);
+            remoteCache.put(3, "three");
+            expectOnlyCreatedEvent(3, eventListener);
+            remoteCache.replace(1, "new-one");
+            expectNoEvents(eventListener);
+            remoteCache.replace(2, "new-two");
+            expectNoEvents(eventListener);
+            remoteCache.replace(3, "new-three");
+            expectOnlyModifiedEvent(3, eventListener);
+            remoteCache.remove(1);
+            expectNoEvents(eventListener);
+            remoteCache.remove(2);
+            expectNoEvents(eventListener);
+            remoteCache.remove(3);
+            expectOnlyRemovedEvent(3, eventListener);
+        } finally {
+            remoteCache.removeClientListener(eventListener);
+        }
+    }
+
+    @Test
+    public void testCustomEvents() {
+        final StaticCustomEventLogListener eventListener = new StaticCustomEventLogListener();
+        remoteCache.addClientListener(eventListener);
+        try {
+            eventListener.expectNoEvents();
+            remoteCache.put(1, "one");
+            eventListener.expectSingleCustomEvent(1, "one");
+            remoteCache.put(1, "newone");
+            eventListener.expectSingleCustomEvent(1, "newone");
+            remoteCache.remove(1);
+            eventListener.expectSingleCustomEvent(1, null);
+        } finally {
+            remoteCache.removeClientListener(eventListener);
+        }
+    }
+
+    @Test
+    public void testCustomEventsDynamic() {
+        final DynamicCustomEventLogListener eventListener = new DynamicCustomEventLogListener();
+        remoteCache.addClientListener(eventListener, null, new Object[]{2});
+        try {
+            eventListener.expectNoEvents();
+            remoteCache.put(1, "one");
+            eventListener.expectSingleCustomEvent(1, "one");
+            remoteCache.put(2, "two");
+            eventListener.expectSingleCustomEvent(2, null);
+        } finally {
+            remoteCache.removeClientListener(eventListener);
+        }
+    }
+
+    @Test
+    public void testCustomFilterEvents() {
+        final FilterCustomEventLogListener eventListener = new FilterCustomEventLogListener();
+        remoteCache.addClientListener(eventListener, new Object[]{3}, null);
+        try {
+            eventListener.expectNoEvents();
+            remoteCache.put(1, "one");
+            eventListener.expectSingleCustomEvent(1, "one");
+            remoteCache.put(1, "uno");
+            eventListener.expectSingleCustomEvent(1, "uno");
+            remoteCache.put(2, "two");
+            eventListener.expectSingleCustomEvent(2, "two");
+            remoteCache.put(2, "dos");
+            eventListener.expectSingleCustomEvent(2, "dos");
+            remoteCache.put(3, "three");
+            eventListener.expectSingleCustomEvent(3, null);
+            remoteCache.put(3, "tres");
+            eventListener.expectSingleCustomEvent(3, null);
+            remoteCache.remove(1);
+            eventListener.expectSingleCustomEvent(1, null);
+            remoteCache.remove(2);
+            eventListener.expectSingleCustomEvent(2, null);
+            remoteCache.remove(3);
+            eventListener.expectSingleCustomEvent(3, null);
+        } finally {
+            remoteCache.removeClientListener(eventListener);
+        }
+    }
+
+   @Test
+    public void testIterationWithCustomClasses() {
+       remoteCache.put("1", new SampleEntity("value1,value2"));
+       remoteCache.put("2", new SampleEntity("value3,value2"));
+       remoteCache.put("ignore", new SampleEntity("whatever"));
+       remoteCache.put("3", new SampleEntity("value7,value8"));
+
+       final Map<Object, Object> entryMap = new HashMap<>();
+       try(CloseableIterator<Entry<Object, Object>> closeableIterator = remoteCache.retrieveEntries("csv-key-value-filter-converter-factory", null, 10)) {
+          closeableIterator.forEachRemaining(new Consumer<Entry<Object, Object>>() {
+             @Override
+             public void accept(Entry<Object, Object> e) {
+                entryMap.put(e.getKey(), e.getValue());
+             }
+          });
+       }
+
+      assertEquals(3, entryMap.size());
+      assertEquals(Arrays.asList("value1","value2"), ((Summary) entryMap.get("1")).getAttributes());
+      assertEquals(Arrays.asList("value3","value2"), ((Summary) entryMap.get("2")).getAttributes());
+      assertEquals(Arrays.asList("value7","value8"), ((Summary) entryMap.get("3")).getAttributes());
+    }
+
+    @Test
+    public void testEventFilteringCustomPojo() {
+        final CustomPojoFilteredEventLogListener eventListener = new CustomPojoFilteredEventLogListener();
+        remoteCache.addClientListener(eventListener, new Object[]{"two"}, null);
+        try {
+            expectNoEvents(eventListener);
+            remoteCache.put(1, new Person("one"));
+            expectNoEvents(eventListener);
+            remoteCache.put(2, new Person("two"));
+            expectOnlyCreatedEvent(2, eventListener);
+            remoteCache.remove(1);
+            expectNoEvents(eventListener);
+            remoteCache.remove(2);
+            expectOnlyRemovedEvent(2, eventListener);
+        } finally {
+            remoteCache.removeClientListener(eventListener);
+        }
+    }
+
+    @Test
+    public void testCustomEventsCustomPojo() {
+        final CustomPojoCustomEventLogListener eventListener = new CustomPojoCustomEventLogListener();
+        remoteCache.addClientListener(eventListener, null, new Object[]{new Person("two")});
+        try {
+            eventListener.expectNoEvents();
+            remoteCache.put(1, new Person("one"));
+            eventListener.expectSingleCustomEvent(1, new Person("one"));
+            remoteCache.put(2, new Person("two"));
+            eventListener.expectSingleCustomEvent(2, null);
+        } finally {
+            remoteCache.removeClientListener(eventListener);
+        }
+    }
+
+    @Test
+    public void testCustomFilterEventsCustomPojo() {
+        final CustomPojoFilterCustomEventLogListener eventListener = new CustomPojoFilterCustomEventLogListener();
+        remoteCache.addClientListener(eventListener, new Object[]{new Id(3)}, null);
+        try {
+            eventListener.expectNoEvents();
+            remoteCache.put(new Id(1), new Person("one"));
+            eventListener.expectSingleCustomEvent(new Id(1), new Person("one"));
+            remoteCache.put(new Id(1), new Person("uno"));
+            eventListener.expectSingleCustomEvent(new Id(1), new Person("uno"));
+            remoteCache.put(new Id(2), new Person("two"));
+            eventListener.expectSingleCustomEvent(new Id(2), new Person("two"));
+            remoteCache.put(new Id(2), new Person("dos"));
+            eventListener.expectSingleCustomEvent(new Id(2), new Person("dos"));
+            remoteCache.put(new Id(3), new Person("three"));
+            eventListener.expectSingleCustomEvent(new Id(3), null);
+            remoteCache.put(new Id(3), new Person("tres"));
+            eventListener.expectSingleCustomEvent(new Id(3), null);
+            remoteCache.remove(new Id(1));
+            eventListener.expectSingleCustomEvent(new Id(1), null);
+            remoteCache.remove(new Id(2));
+            eventListener.expectSingleCustomEvent(new Id(2), null);
+            remoteCache.remove(new Id(3));
+            eventListener.expectSingleCustomEvent(new Id(3), null);
+        } finally {
+            remoteCache.removeClientListener(eventListener);
+        }
+    }
+
+    public static <K> void expectOnlyCreatedEvent(K key, EventLogListener eventListener) {
+        expectSingleEvent(key, eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_CREATED);
+        expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_MODIFIED);
+        expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_REMOVED);
+    }
+
+    public static <K> void expectOnlyModifiedEvent(K key, EventLogListener eventListener) {
+        expectSingleEvent(key, eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_MODIFIED);
+        expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_CREATED);
+        expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_REMOVED);
+    }
+
+    public static <K> void expectOnlyRemovedEvent(K key, EventLogListener eventListener) {
+        expectSingleEvent(key, eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_REMOVED);
+        expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_CREATED);
+        expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_MODIFIED);
+    }
+
+    public static <K> void expectSingleEvent(K key, EventLogListener eventListener, ClientEvent.Type type) {
+        switch (type) {
+            case CLIENT_CACHE_ENTRY_CREATED:
+                ClientCacheEntryCreatedEvent createdEvent = eventListener.pollEvent(type);
+                assertEquals(key, createdEvent.getKey());
+                break;
+            case CLIENT_CACHE_ENTRY_MODIFIED:
+                ClientCacheEntryModifiedEvent modifiedEvent = eventListener.pollEvent(type);
+                assertEquals(key, modifiedEvent.getKey());
+                break;
+            case CLIENT_CACHE_ENTRY_REMOVED:
+                ClientCacheEntryRemovedEvent removedEvent = eventListener.pollEvent(type);
+                assertEquals(key, removedEvent.getKey());
+                break;
+        }
+        assertEquals(0, eventListener.queue(type).size());
+    }
+
+    public static void expectNoEvents(EventLogListener eventListener) {
+        expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_CREATED);
+        expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_MODIFIED);
+        expectNoEvents(eventListener, ClientEvent.Type.CLIENT_CACHE_ENTRY_REMOVED);
+    }
+
+    public static void expectNoEvents(EventLogListener eventListener, ClientEvent.Type type) {
+        switch (type) {
+            case CLIENT_CACHE_ENTRY_CREATED:
+                assertEquals(0, eventListener.createdEvents.size());
+                break;
+            case CLIENT_CACHE_ENTRY_MODIFIED:
+                assertEquals(0, eventListener.modifiedEvents.size());
+                break;
+            case CLIENT_CACHE_ENTRY_REMOVED:
+                assertEquals(0, eventListener.removedEvents.size());
+                break;
+        }
+    }
+
+    @ClientListener(filterFactoryName = "static-filter-factory")
+    public static class StaticFilteredEventLogListener extends EventLogListener {}
+
+    @ClientListener(filterFactoryName = "dynamic-filter-factory")
+    public static class DynamicFilteredEventLogListener extends EventLogListener {}
+
+    @ClientListener(converterFactoryName = "static-converter-factory")
+    public static class StaticCustomEventLogListener extends CustomEventLogListener {}
+
+    @ClientListener(converterFactoryName = "dynamic-converter-factory")
+    public static class DynamicCustomEventLogListener extends CustomEventLogListener {}
+
+    @ClientListener(filterFactoryName = "filter-converter-factory", converterFactoryName = "filter-converter-factory")
+    public static class FilterCustomEventLogListener extends CustomEventLogListener {}
+
+    @ClientListener(filterFactoryName = "pojo-filter-factory")
+    public static class CustomPojoFilteredEventLogListener extends EventLogListener {}
+
+    @ClientListener(converterFactoryName = "pojo-converter-factory")
+    public static class CustomPojoCustomEventLogListener extends CustomEventLogListener {}
+
+    @ClientListener(filterFactoryName = "pojo-filter-converter-factory", converterFactoryName = "pojo-filter-converter-factory")
+    public static class CustomPojoFilterCustomEventLogListener extends CustomEventLogListener {}
+
+    public static class Person implements Serializable {
 
         final String name;
 
@@ -773,6 +1105,30 @@ public abstract class AbstractRemoteCacheIT {
         @Override
         public int hashCode() {
             return name.hashCode();
+        }
+    }
+
+    public static class Id implements Serializable {
+        final byte id;
+        public Id(int id) {
+            this.id = (byte) id;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+
+            Id id1 = (Id) o;
+
+            if (id != id1.id) return false;
+
+            return true;
+        }
+
+        @Override
+        public int hashCode() {
+            return id;
         }
     }
 

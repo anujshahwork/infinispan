@@ -1,14 +1,5 @@
 package org.infinispan.transaction.impl;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import org.infinispan.commands.write.WriteCommand;
 import org.infinispan.commons.equivalence.Equivalence;
 import org.infinispan.commons.util.CollectionFactory;
@@ -22,6 +13,20 @@ import org.infinispan.transaction.xa.CacheTransaction;
 import org.infinispan.transaction.xa.GlobalTransaction;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 import static org.infinispan.commons.util.Util.toStr;
 
@@ -55,8 +60,7 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
    /** Holds all the locks for which the local node is a secondary data owner. */
    protected volatile Set<Object> backupKeyLocks = null;
 
-   private boolean txComplete = false;
-   private volatile boolean needToNotifyWaiters = false;
+   private volatile boolean txComplete = false;
    protected final int topologyId;
 
    private EntryVersionsMap updatedEntryVersions;
@@ -68,10 +72,9 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
    private volatile boolean isMarkedForRollback;
 
    /**
-    * Used internally by the {@link #waitForLockRelease} method in order to notify other transactions that wait on this
-    * one to complete.
+    * Mark the time this tx object was created
     */
-   private final Object lockReleaseNotifier = new Object();
+   private final long txCreationTime;
 
    /**
     * Equivalence function to compare keys that are stored in temporary
@@ -82,6 +85,8 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
 
    private volatile Flag stateTransferFlag;
 
+   private final CompletableFuture<Void> notifier;
+
    public final boolean isMarkedForRollback() {
       return isMarkedForRollback;
    }
@@ -90,10 +95,12 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
       isMarkedForRollback = markForRollback;
    }
 
-   public AbstractCacheTransaction(GlobalTransaction tx, int topologyId, Equivalence<Object> keyEquivalence) {
+   public AbstractCacheTransaction(GlobalTransaction tx, int topologyId, Equivalence<Object> keyEquivalence, long txCreationTime) {
       this.tx = tx;
       this.topologyId = topologyId;
       this.keyEquivalence = keyEquivalence;
+      this.txCreationTime = txCreationTime;
+      notifier = new CompletableFuture<>();
    }
 
    @Override
@@ -104,13 +111,7 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
    @Override
    public final List<WriteCommand> getModifications() {
       if (hasLocalOnlyModifications) {
-         List<WriteCommand> mods = new ArrayList<WriteCommand>();
-         for (WriteCommand cmd : modifications) {
-            if (!cmd.hasFlag(Flag.CACHE_MODE_LOCAL)) {
-               mods.add(cmd);
-            }
-         }
-         return mods;
+         return modifications.stream().filter(cmd -> !cmd.hasFlag(Flag.CACHE_MODE_LOCAL)).collect(Collectors.toList());
       } else {
          return getAllModifications();
       }
@@ -125,7 +126,7 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
       if (modifications == null) {
          throw new IllegalArgumentException("modification list cannot be null");
       }
-      List<WriteCommand> mods = new ArrayList<WriteCommand>();
+      List<WriteCommand> mods = new ArrayList<>();
       for (WriteCommand cmd : modifications) {
          if (cmd.hasFlag(Flag.CACHE_MODE_LOCAL)) {
             hasLocalOnlyModifications = true;
@@ -176,37 +177,23 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
    @Override
    public void notifyOnTransactionFinished() {
       if (trace) log.tracef("Transaction %s has completed, notifying listening threads.", tx);
-      txComplete = true; //this one is cheap but does not guarantee visibility
-      if (needToNotifyWaiters) {
-         synchronized (lockReleaseNotifier) {
-            txComplete = true; //in this case we want to guarantee visibility to other threads
-            lockReleaseNotifier.notifyAll();
-         }
+      if (!txComplete) {
+         //avoid invalidate CPU L1 cache is tx is already completed
+         txComplete = true;
+         notifier.complete(null);
       }
    }
 
    @Override
-   public boolean waitForLockRelease(Object key, long lockAcquisitionTimeout) throws InterruptedException {
-      if (txComplete) return true; //using an unsafe optimisation: if it's true, we for sure have the latest read of the value without needing memory barriers
-      final boolean potentiallyLocked = hasLockOrIsLockBackup(key);
-      if (trace) log.tracef("Transaction gtx=%s potentially locks key %s? %s", tx, key, potentiallyLocked);
-      if (potentiallyLocked) {
-         synchronized (lockReleaseNotifier) {
-            // Check again after acquiring a lock on the monitor that the transaction has completed.
-            // If it has completed, all of its locks would have been released.
-            needToNotifyWaiters = true;
-            //The order in which these booleans are verified is critical as we take advantage of it to avoid otherwise needed locking
-            if (txComplete) {
-               needToNotifyWaiters = false;
-               return true;
-            }
-            lockReleaseNotifier.wait(lockAcquisitionTimeout);
-
-            // Check again in case of spurious thread signalling
-            return txComplete;
-         }
+   public final boolean waitForLockRelease(long lockAcquisitionTimeout) throws InterruptedException {
+      try {
+         notifier.get(lockAcquisitionTimeout, TimeUnit.MILLISECONDS);
+      } catch (ExecutionException e) {
+         throw new IllegalStateException("Should never happen", e);
+      } catch (TimeoutException e) {
+         //ignored.
       }
-      return true;
+      return txComplete;
    }
 
    @Override
@@ -217,7 +204,7 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
    @Override
    public void addBackupLockForKey(Object key) {
       // we need to synchronize this collection to be able to get a valid snapshot from another thread during state transfer
-      if (backupKeyLocks == null) backupKeyLocks = Collections.synchronizedSet(new HashSet<Object>(INITIAL_LOCK_CAPACITY));
+      if (backupKeyLocks == null) backupKeyLocks = Collections.synchronizedSet(new HashSet<>(INITIAL_LOCK_CAPACITY));
       backupKeyLocks.add(key);
    }
 
@@ -245,11 +232,26 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
       lockedKeys = null;
    }
 
-   private boolean hasLockOrIsLockBackup(Object key) {
-      //stopgap fix for ISPN-2728. The real fix would be to synchronize this with the intrinsic lock.
-      Set<Object> lockedKeysCopy = lockedKeys;
-      Set<Object> backupKeyLocksCopy = backupKeyLocks;
-      return (lockedKeysCopy != null && lockedKeysCopy.contains(key)) || (backupKeyLocksCopy != null && backupKeyLocksCopy.contains(key));
+   @Override
+   public boolean containsLockOrBackupLock(Object key) {
+      return getLockedKeys().contains(key) || getBackupLockedKeys().contains(key);
+   }
+
+   @Override
+   public Object findAnyLockedOrBackupLocked(Collection<Object> keys) {
+      Set<Object> lockedKeysCopy = getLockedKeys();
+      Set<Object> backupKeyLocksCopy = getBackupLockedKeys();
+      for (Object key : keys) {
+         if (lockedKeysCopy.contains(key) || backupKeyLocksCopy.contains(key)) {
+            return key;
+         }
+      }
+      return null;
+   }
+
+   @Override
+   public boolean areLocksReleased() {
+      return txComplete;
    }
 
    public Set<Object> getAffectedKeys() {
@@ -261,7 +263,7 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
       affectedKeys.add(key);
    }
 
-   public void addAllAffectedKeys(Collection<Object> keys) {
+   public void addAllAffectedKeys(Collection<?> keys) {
       initAffectedKeys();
       affectedKeys.addAll(keys);
    }
@@ -288,7 +290,7 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
    @Override
    public void putLookedUpRemoteVersion(Object key, EntryVersion version) {
       if (lookedUpRemoteVersions == null) {
-         lookedUpRemoteVersions = new HashMap<Object, EntryVersion>();
+         lookedUpRemoteVersions = new HashMap<>();
       }
       lookedUpRemoteVersions.put(key, version);
    }
@@ -351,5 +353,15 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
 
    protected final void internalSetStateTransferFlag(Flag stateTransferFlag) {
       this.stateTransferFlag = stateTransferFlag;
+   }
+   
+   @Override
+   public long getCreationTime() {
+      return txCreationTime;
+   }
+
+   @Override
+   public final void addListener(TransactionCompletedListener listener) {
+      notifier.thenRun(listener::onCompletion);
    }
 }

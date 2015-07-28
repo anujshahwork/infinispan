@@ -1,8 +1,20 @@
 package org.infinispan.interceptors.distribution;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import org.infinispan.commands.FlagAffectedCommand;
+import org.infinispan.commands.ReplicableCommand;
+import org.infinispan.commands.read.GetAllCommand;
 import org.infinispan.commands.remote.ClusteredGetCommand;
+import org.infinispan.commands.remote.ClusteredGetAllCommand;
 import org.infinispan.commands.remote.GetKeysInGroupCommand;
+import org.infinispan.commands.write.ClearCommand;
 import org.infinispan.commands.write.DataWriteCommand;
 import org.infinispan.commands.write.ValueMatcher;
 import org.infinispan.commands.write.WriteCommand;
@@ -10,15 +22,18 @@ import org.infinispan.commons.CacheException;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.container.entries.InternalCacheValue;
+import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.context.impl.TxInvocationContext;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.distribution.RemoteValueRetrievedListener;
+import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.distribution.group.GroupManager;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.interceptors.ClusteringInterceptor;
 import org.infinispan.interceptors.locking.ClusteringDependentLogic;
 import org.infinispan.remoting.RemoteException;
+import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.responses.CacheNotFoundResponse;
 import org.infinispan.remoting.responses.ClusteredGetResponseValidityFilter;
 import org.infinispan.remoting.responses.ExceptionResponse;
@@ -37,12 +52,7 @@ import org.infinispan.transaction.xa.GlobalTransaction;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import static org.infinispan.commons.util.Util.toStr;
 
 /**
  * Base class for distribution of entries across a cluster.
@@ -101,13 +111,20 @@ public abstract class BaseDistributionInterceptor extends ClusteringInterceptor 
    }
 
    @Override
+   public final Object visitClearCommand(InvocationContext ctx, ClearCommand command) throws Throwable {
+      if (ctx.isOriginLocal() && !isLocalModeForced(command)) {
+         rpcManager.invokeRemotely(null, command, rpcManager.getDefaultRpcOptions(isSynchronous(command)));
+      }
+      return invokeNextInterceptor(ctx, command);
+   }
+
+   @Override
    protected final InternalCacheEntry retrieveFromRemoteSource(Object key, InvocationContext ctx, boolean acquireRemoteLock, FlagAffectedCommand command, boolean isWrite) throws Exception {
       GlobalTransaction gtx = ctx.isInTxScope() ? ((TxInvocationContext)ctx).getGlobalTransaction() : null;
       ClusteredGetCommand get = cf.buildClusteredGetCommand(key, command.getFlags(), acquireRemoteLock, gtx);
       get.setWrite(isWrite);
 
-
-      RpcOptionsBuilder rpcOptionsBuilder = rpcManager.getRpcOptionsBuilder(ResponseMode.WAIT_FOR_VALID_RESPONSE, false);
+      RpcOptionsBuilder rpcOptionsBuilder = rpcManager.getRpcOptionsBuilder(ResponseMode.WAIT_FOR_VALID_RESPONSE, DeliverOrder.NONE);
       int lastTopologyId = -1;
       InternalCacheEntry value = null;
       while (value == null) {
@@ -122,12 +139,12 @@ public abstract class BaseDistributionInterceptor extends ClusteringInterceptor 
          if (lastTopologyId < currentTopologyId) {
             // Cache topology has changed or it is the first time.
             lastTopologyId = currentTopologyId;
-            targets = new ArrayList<Address>(cacheTopology.getReadConsistentHash().locateOwners(key));
-         } else if (lastTopologyId == currentTopologyId) {
+            targets = new ArrayList<>(cacheTopology.getReadConsistentHash().locateOwners(key));
+         } else if (lastTopologyId == currentTopologyId && cacheTopology.getPendingCH() != null) {
             // Same topologyId, but the owners could have already installed the next topology
-            // Lets try with write consistent owners (the read owners in the next topology)
+            // Lets try with pending consistent owners (the read owners in the next topology)
             lastTopologyId = currentTopologyId + 1;
-            targets = new ArrayList<Address>(cacheTopology.getWriteConsistentHash().locateOwners(key));
+            targets = new ArrayList<>(cacheTopology.getPendingCH().locateOwners(key));
             // Remove already contacted nodes
             targets.removeAll(cacheTopology.getReadConsistentHash().locateOwners(key));
             if (targets.isEmpty()) {
@@ -136,8 +153,8 @@ public abstract class BaseDistributionInterceptor extends ClusteringInterceptor 
                }
                break;
             }
-         } else { // lastTopologyId > currentTopologyId
-            // We have not received a valid value from the write CH owners either, and the topology id hasn't changed
+         } else { // lastTopologyId > currentTopologyId || cacheTopology.getPendingCH() == null
+            // We have not received a valid value from the pending CH owners either, and the topology id hasn't changed
             if (trace) {
                log.tracef("No valid values found for key '%s' (topologyId=%s).", key, currentTopologyId);
             }
@@ -184,16 +201,74 @@ public abstract class BaseDistributionInterceptor extends ClusteringInterceptor 
       return null;
    }
 
+   protected Map<Object, InternalCacheEntry> retrieveFromRemoteSources(Set<?> requestedKeys, InvocationContext ctx, Set<Flag> flags) throws Throwable {
+      GlobalTransaction gtx = ctx.isInTxScope() ? ((TxInvocationContext)ctx).getGlobalTransaction() : null;
+      CacheTopology cacheTopology = stateTransferManager.getCacheTopology();
+      ConsistentHash ch = cacheTopology.getReadConsistentHash();
+
+      Map<Address, List<Object>> ownerKeys = new HashMap<>();
+      for (Object key : requestedKeys) {
+         Address owner = ch.locatePrimaryOwner(key);
+         List<Object> requestedKeysFromNode = ownerKeys.get(owner);
+         if (requestedKeysFromNode == null) {
+            ownerKeys.put(owner, requestedKeysFromNode = new ArrayList<>());
+         }
+         requestedKeysFromNode.add(key);
+      }
+
+      Map<Address, ReplicableCommand> commands = new HashMap<>();
+      for (Map.Entry<Address, List<Object>> entry : ownerKeys.entrySet()) {
+         List<Object> keys = entry.getValue();
+         ClusteredGetAllCommand remoteGetAll = cf.buildClusteredGetAllCommand(keys, flags, gtx);
+         commands.put(entry.getKey(), remoteGetAll);
+      }
+
+      RpcOptionsBuilder rpcOptionsBuilder = rpcManager.getRpcOptionsBuilder(
+            ResponseMode.SYNCHRONOUS_IGNORE_LEAVERS, DeliverOrder.NONE);
+      RpcOptions options = rpcOptionsBuilder.build();
+      Map<Address, Response> responses = rpcManager.invokeRemotely(commands, options);
+
+      Map<Object, InternalCacheEntry> entries = new HashMap<>();
+      for (Map.Entry<Address, Response> entry : responses.entrySet()) {
+         updateWithValues(((ClusteredGetAllCommand) commands.get(entry.getKey())).getKeys(),
+               entry.getValue(), entries);
+      }
+
+      return entries;
+   }
+
+   private void updateWithValues(List<?> keys, Response r, Map<Object, InternalCacheEntry> entries) {
+      if (r instanceof SuccessfulResponse) {
+         SuccessfulResponse response = (SuccessfulResponse) r;
+         List<InternalCacheValue> values = (List<InternalCacheValue>) response.getResponseValue();
+         // Only process if we got a return value - this can happen if the node is shutting
+         // down when it received the request
+         if (values != null) {
+            for (int i = 0; i < keys.size(); ++i) {
+               InternalCacheValue icv = values.get(i);
+               if (icv != null) {
+                  Object key = keys.get(i);
+                  Object value = icv.getValue();
+                  if (value == null) {
+                     entries.put(key, null);
+                  } else {
+                     InternalCacheEntry ice = icv.toInternalCacheEntry(key);
+                     entries.put(key, ice);
+                  }
+               }
+            }
+         }
+      }
+   }
+
    protected final Object handleNonTxWriteCommand(InvocationContext ctx, DataWriteCommand command) throws Throwable {
       if (ctx.isInTxScope()) {
          throw new CacheException("Attempted execution of non-transactional write command in a transactional invocation context");
       }
 
-      RecipientGenerator recipientGenerator = new SingleKeyRecipientGenerator(command.getKey());
-
       // see if we need to load values from remote sources first
       if (needValuesFromPreviousOwners(ctx, command)) {
-         remoteGetBeforeWrite(ctx, command, recipientGenerator);
+         remoteGetBeforeWrite(ctx, command, command.getKey());
       }
 
       // invoke the command locally, we need to know if it's successful or not
@@ -212,9 +287,14 @@ public abstract class BaseDistributionInterceptor extends ClusteringInterceptor 
       // TotalOrderStateTransferInterceptor doesn't set the topology id for PFERs.
       // TODO Shouldn't PFERs be executed in a tx with total order?
       boolean topologyChanged = isSync && currentTopologyId != commandTopologyId && commandTopologyId != -1;
-      if (command.isSuccessful() && topologyChanged) {
-         log.tracef("Cache topology changed while the command was executing: expected %d, got %d",
-               commandTopologyId, currentTopologyId);
+      if (trace) {
+         log.tracef("Command topology id is %d, current topology id is %d, successful? %s",
+               (Object)commandTopologyId, currentTopologyId, command.isSuccessful());
+      }
+      // We need to check for topology changes on the origin even if the command was unsuccessful
+      // otherwise we execute the command on the correct primary owner, and then we still
+      // throw an OutdatedTopologyInterceptor when we return in EntryWrappingInterceptor.
+      if (topologyChanged) {
          throw new OutdatedTopologyException("Cache topology changed while the command was executing: expected " +
                commandTopologyId + ", got " + currentTopologyId);
       }
@@ -226,7 +306,7 @@ public abstract class BaseDistributionInterceptor extends ClusteringInterceptor 
                log.tracef("Skipping the replication of the conditional command as it did not succeed on primary owner (%s).", command);
                return localResult;
             }
-            List<Address> recipients = recipientGenerator.generateRecipients();
+            List<Address> recipients = cdl.getOwners(command.getKey());
             // Ignore the previous value on the backup owners
             command.setValueMatcher(ValueMatcher.MATCH_ALWAYS);
             try {
@@ -244,7 +324,7 @@ public abstract class BaseDistributionInterceptor extends ClusteringInterceptor 
                log.tracef("Skipping the replication of the command as it did not succeed on primary owner (%s).", command);
                return localResult;
             }
-            List<Address> recipients = recipientGenerator.generateRecipients();
+            List<Address> recipients = cdl.getOwners(command.getKey());
             log.tracef("I'm the primary owner, sending the command to all the backups (%s) in order to be applied.",
                   recipients);
             // check if a single owner has been configured and the target for the key is the local address
@@ -336,64 +416,103 @@ public abstract class BaseDistributionInterceptor extends ClusteringInterceptor 
       throw new CacheException("Got unsuccessful response from primary owner: " + fromPrimaryOwner, cause);
    }
 
+   @Override
+   public Object visitGetAllCommand(InvocationContext ctx, GetAllCommand command) throws Throwable {
+      if (command.hasFlag(Flag.CACHE_MODE_LOCAL)
+            || command.hasFlag(Flag.SKIP_REMOTE_LOOKUP)
+            || command.hasFlag(Flag.IGNORE_RETURN_VALUES)) {
+         return invokeNextInterceptor(ctx, command);
+      }
+
+      int commandTopologyId = command.getTopologyId();
+      if (ctx.isOriginLocal()) {
+         int currentTopologyId = stateTransferManager.getCacheTopology().getTopologyId();
+         boolean topologyChanged = currentTopologyId != commandTopologyId && commandTopologyId != -1;
+         if (trace) {
+            log.tracef("Command topology id is %d, current topology id is %d", commandTopologyId, currentTopologyId);
+         }
+         if (topologyChanged) {
+            throw new OutdatedTopologyException("Cache topology changed while the command was executing: expected " +
+                  commandTopologyId + ", got " + currentTopologyId);
+         }
+
+         // At this point, we know that an entry located on this node that exists in the data container/store
+         // must also exist in the context.
+         ConsistentHash ch = command.getConsistentHash();
+         Set<Object> requestedKeys = new HashSet<>();
+         for (Object key : command.getKeys()) {
+            CacheEntry entry = ctx.lookupEntry(key);
+            if (entry == null) {
+               if (!isValueAvailableLocally(ch, key)) {
+                  requestedKeys.add(key);
+               } else {
+                  if (trace) {
+                     log.tracef("Not doing a remote get for missing key %s since entry is "
+                                 + "mapped to current node (%s). Owners are %s",
+                           toStr(key), rpcManager.getAddress(), ch.locateOwners(key));
+                  }
+                  // Force a map entry to be created, because we know this entry is local
+                  entryFactory.wrapEntryForPut(ctx, key, null, false, command, false);
+               }
+            }
+         }
+
+         boolean missingRemoteValues = false;
+         if (!requestedKeys.isEmpty()) {
+            if (trace) {
+               log.tracef("Fetching entries for keys %s from remote nodes", requestedKeys);
+            }
+
+            Map<Object, InternalCacheEntry> justRetrieved = retrieveFromRemoteSources(
+                  requestedKeys, ctx, command.getFlags());
+            Map<Object, InternalCacheEntry> previouslyFetched = command.getRemotelyFetched();
+            if (previouslyFetched != null) {
+               previouslyFetched.putAll(justRetrieved);
+            } else {
+               command.setRemotelyFetched(justRetrieved);
+            }
+            for (Object key : requestedKeys) {
+               if (!justRetrieved.containsKey(key)) {
+                  missingRemoteValues = true;
+               } else {
+                  entryFactory.wrapEntryForPut(ctx, key, justRetrieved.get(key), false, command, false);
+               }
+            }
+         }
+
+         if (missingRemoteValues) {
+            throw new OutdatedTopologyException("Remote values are missing because of a topology change");
+         }
+         return invokeNextInterceptor(ctx, command);
+      } else { // remote
+         int currentTopologyId = stateTransferManager.getCacheTopology().getTopologyId();
+         boolean topologyChanged = currentTopologyId != commandTopologyId && commandTopologyId != -1;
+         // If the topology changed while invoking, this means we cannot trust any null values
+         // so we shouldn't return them
+         ConsistentHash ch = command.getConsistentHash();
+         for (Object key : command.getKeys()) {
+            CacheEntry entry = ctx.lookupEntry(key);
+            if (entry == null || entry.isNull()) {
+               if (isValueAvailableLocally(ch, key) && !topologyChanged) {
+                  if (trace) {
+                     log.tracef("Not doing a remote get for missing key %s since entry is "
+                                 + "mapped to current node (%s). Owners are %s",
+                           toStr(key), rpcManager.getAddress(), ch.locateOwners(key));
+                  }
+                  // Force a map entry to be created, because we know this entry is local
+                  entryFactory.wrapEntryForPut(ctx, key, null, false, command, false);
+               }
+            }
+         }
+         Map<Object, Object> values = (Map<Object, Object>) invokeNextInterceptor(ctx, command);
+         return values;
+      }
+   }
+
    /**
     * @return Whether a remote get is needed to obtain the previous values of the affected entries.
     */
    protected abstract boolean needValuesFromPreviousOwners(InvocationContext ctx, WriteCommand command);
 
-   protected abstract void remoteGetBeforeWrite(InvocationContext ctx, WriteCommand command, RecipientGenerator keygen) throws Throwable;
-
-   interface RecipientGenerator {
-
-      Collection<Object> getKeys();
-
-      List<Address> generateRecipients();
-   }
-
-   class SingleKeyRecipientGenerator implements RecipientGenerator {
-      private final Object key;
-      private final Set<Object> keys;
-      private List<Address> recipients = null;
-
-      SingleKeyRecipientGenerator(Object key) {
-         this.key = key;
-         keys = Collections.singleton(key);
-      }
-
-      @Override
-      public List<Address> generateRecipients() {
-         if (recipients == null) {
-            recipients = cdl.getOwners(key);
-         }
-         return recipients;
-      }
-
-      @Override
-      public Collection<Object> getKeys() {
-         return keys;
-      }
-   }
-
-   class MultipleKeysRecipientGenerator implements RecipientGenerator {
-
-      private final Collection<Object> keys;
-      private List<Address> recipients = null;
-
-      MultipleKeysRecipientGenerator(Collection<Object> keys) {
-         this.keys = keys;
-      }
-
-      @Override
-      public List<Address> generateRecipients() {
-         if (recipients == null) {
-            recipients = cdl.getOwners(keys);
-         }
-         return recipients;
-      }
-
-      @Override
-      public Collection<Object> getKeys() {
-         return keys;
-      }
-   }
+   protected abstract void remoteGetBeforeWrite(InvocationContext ctx, WriteCommand command, Object key) throws Throwable;
 }

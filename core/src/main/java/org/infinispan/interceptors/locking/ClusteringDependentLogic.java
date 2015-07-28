@@ -1,16 +1,17 @@
 package org.infinispan.interceptors.locking;
 
-import org.infinispan.manager.EmbeddedCacheManager;
-import org.infinispan.metadata.Metadata;
 import org.infinispan.commands.FlagAffectedCommand;
 import org.infinispan.commands.tx.VersionedPrepareCommand;
 import org.infinispan.commands.tx.totalorder.TotalOrderPrepareCommand;
+import org.infinispan.commands.write.RemoveCommand;
 import org.infinispan.commands.write.WriteCommand;
 import org.infinispan.commons.util.Immutables;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ClearCacheEntry;
+import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.container.versioning.EntryVersionsMap;
 import org.infinispan.container.versioning.VersionGenerator;
 import org.infinispan.context.Flag;
@@ -20,6 +21,8 @@ import org.infinispan.distribution.DistributionManager;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
+import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.metadata.Metadata;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
 import org.infinispan.persistence.manager.PersistenceManager;
 import org.infinispan.remoting.rpc.RpcManager;
@@ -31,6 +34,7 @@ import org.infinispan.transaction.impl.WriteSkewHelper;
 import org.infinispan.transaction.xa.CacheTransaction;
 import org.infinispan.util.TimeService;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
@@ -66,10 +70,10 @@ public interface ClusteringDependentLogic {
 
    Address getAddress();
 
-   public static abstract class AbstractClusteringDependentLogic implements ClusteringDependentLogic {
+   abstract class AbstractClusteringDependentLogic implements ClusteringDependentLogic {
 
-      protected DataContainer dataContainer;
-      protected CacheNotifier notifier;
+      protected DataContainer<Object, Object> dataContainer;
+      protected CacheNotifier<Object, Object> notifier;
       protected boolean totalOrder;
       private WriteSkewHelper.KeySpecificLogic keySpecificLogic;
       protected CommitManager commitManager;
@@ -77,7 +81,7 @@ public interface ClusteringDependentLogic {
       protected TimeService timeService;
 
       @Inject
-      public void init(DataContainer dataContainer, CacheNotifier notifier, Configuration configuration,
+      public void init(DataContainer<Object, Object> dataContainer, CacheNotifier<Object, Object> notifier, Configuration configuration,
                        CommitManager commitManager, PersistenceManager persistenceManager, TimeService timeService) {
          this.dataContainer = dataContainer;
          this.notifier = notifier;
@@ -95,28 +99,47 @@ public interface ClusteringDependentLogic {
                clusteredCreateNewVersionsAndCheckForWriteSkews(versionGenerator, context, prepareCommand);
       }
 
+      @Override
+      public final void commitEntry(CacheEntry entry, Metadata metadata, FlagAffectedCommand command, InvocationContext ctx, Flag trackFlag, boolean l1Invalidation) {
+         if (entry instanceof ClearCacheEntry) {
+            //noinspection unchecked
+            commitClearCommand(dataContainer, (ClearCacheEntry<Object, Object>) entry, ctx, command);
+         } else {
+            commitSingleEntry(entry, metadata, command, ctx, trackFlag, l1Invalidation);
+         }
+      }
+
+      private void commitClearCommand(DataContainer<Object, Object> dataContainer, ClearCacheEntry<Object, Object> cacheEntry,
+                                      InvocationContext context, FlagAffectedCommand command) {
+         List<InternalCacheEntry<Object, Object>> copyEntries = new ArrayList<>(dataContainer.entrySet());
+         cacheEntry.commit(dataContainer, null);
+         for (InternalCacheEntry entry : copyEntries) {
+            notifier.notifyCacheEntryRemoved(entry.getKey(), entry.getValue(), entry.getMetadata(), false, context, command);
+         }
+      }
+
+      protected abstract void commitSingleEntry(CacheEntry entry, Metadata metadata, FlagAffectedCommand command,
+                                                InvocationContext ctx, Flag trackFlag, boolean l1Invalidation);
+
       protected abstract WriteSkewHelper.KeySpecificLogic initKeySpecificLogic(boolean totalOrder);
 
-      protected void notifyCommitEntry(boolean created, boolean removed,
-                                       boolean evicted, CacheEntry entry, InvocationContext ctx,
-                                       FlagAffectedCommand command) {
-         // Eviction has no notion of pre/post event since 4.2.0.ALPHA4.
-         // EvictionManagerImpl.onEntryEviction() triggers both pre and post events
-         // with non-null values, so we should do the same here as an ugly workaround.
-         if (removed && evicted) {
-            notifier.notifyCacheEntryEvicted(
-                  entry.getKey(), entry.getValue(), ctx, command);
-         } else if (removed) {
-            notifier.notifyCacheEntryRemoved(
-                  entry.getKey(), null, entry.getValue(), false, ctx, command);
+      protected void notifyCommitEntry(boolean created, boolean removed, CacheEntry entry, InvocationContext ctx,
+                                       FlagAffectedCommand command, Object previousValue, Metadata previousMetadata) {
+        if (removed) {
+            if (command instanceof RemoveCommand) {
+               ((RemoveCommand)command).notify(ctx, previousValue, previousMetadata, false);
+            } else {
+               notifier.notifyCacheEntryRemoved(
+                     entry.getKey(), previousValue, previousMetadata, false, ctx, command);
+            }
          } else {
             // Notify entry event after container has been updated
             if (created) {
                notifier.notifyCacheEntryCreated(
                      entry.getKey(), entry.getValue(), false, ctx, command);
             } else {
-               notifier.notifyCacheEntryModified(entry.getKey(),
-                                                 entry.getValue(), created, false, ctx, command);
+               notifier.notifyCacheEntryModified(entry.getKey(), entry.getValue(), previousValue, previousMetadata,
+                                                 false, ctx, command);
             }
          }
       }
@@ -171,7 +194,7 @@ public interface ClusteringDependentLogic {
    /**
     * This logic is used in local mode caches.
     */
-   public static class LocalLogic extends AbstractClusteringDependentLogic {
+   class LocalLogic extends AbstractClusteringDependentLogic {
 
       private EmbeddedCacheManager cacheManager;
 
@@ -215,18 +238,24 @@ public interface ClusteringDependentLogic {
       }
 
       @Override
-      public void commitEntry(CacheEntry entry, Metadata metadata, FlagAffectedCommand command, InvocationContext ctx,
-                              Flag trackFlag, boolean l1Invalidation) {
+      protected void commitSingleEntry(CacheEntry entry, Metadata metadata, FlagAffectedCommand command, InvocationContext ctx,
+                                       Flag trackFlag, boolean l1Invalidation) {
          // Cache flags before they're reset
          // TODO: Can the reset be done after notification instead?
          boolean created = entry.isCreated();
          boolean removed = entry.isRemoved();
-         boolean evicted = entry.isEvicted();
 
+         InternalCacheEntry previousEntry = dataContainer.peek(entry.getKey());
+         Object previousValue = null;
+         Metadata previousMetadata = null;
+         if (previousEntry != null) {
+            previousValue = previousEntry.getValue();
+            previousMetadata = previousEntry.getMetadata();
+         }
          commitManager.commit(entry, metadata, trackFlag, l1Invalidation);
 
          // Notify after events if necessary
-         notifyCommitEntry(created, removed, evicted, entry, ctx, command);
+         notifyCommitEntry(created, removed, entry, ctx, command, previousValue, previousMetadata);
       }
 
       @Override
@@ -240,7 +269,7 @@ public interface ClusteringDependentLogic {
       }
    }
 
-   static final Address LOCAL_MODE_ADDRESS = new Address() {
+   Address LOCAL_MODE_ADDRESS = new Address() {
       @Override
       public String toString() {
          return "Local Address";
@@ -255,7 +284,7 @@ public interface ClusteringDependentLogic {
    /**
     * This logic is used in invalidation mode caches.
     */
-   public static class InvalidationLogic extends AbstractClusteringDependentLogic {
+   class InvalidationLogic extends AbstractClusteringDependentLogic {
 
       private StateTransferManager stateTransferManager;
       private RpcManager rpcManager;
@@ -282,18 +311,24 @@ public interface ClusteringDependentLogic {
       }
 
       @Override
-      public void commitEntry(CacheEntry entry, Metadata metadata,
-                              FlagAffectedCommand command, InvocationContext ctx, Flag trackFlag, boolean l1Invalidation) {
+      protected void commitSingleEntry(CacheEntry entry, Metadata metadata, FlagAffectedCommand command,
+                                       InvocationContext ctx, Flag trackFlag, boolean l1Invalidation) {
          // Cache flags before they're reset
          // TODO: Can the reset be done after notification instead?
          boolean created = entry.isCreated();
          boolean removed = entry.isRemoved();
-         boolean evicted = entry.isEvicted();
 
+         InternalCacheEntry previousEntry = dataContainer.peek(entry.getKey());
+         Object previousValue = null;
+         Metadata previousMetadata = null;
+         if (previousEntry != null) {
+            previousValue = previousEntry.getValue();
+            previousMetadata = previousEntry.getMetadata();
+         }
          commitManager.commit(entry, metadata, trackFlag, l1Invalidation);
 
          // Notify after events if necessary
-         notifyCommitEntry(created, removed, evicted, entry, ctx, command);
+         notifyCommitEntry(created, removed, entry, ctx, command, previousValue, previousMetadata);
       }
 
       @Override
@@ -320,7 +355,7 @@ public interface ClusteringDependentLogic {
    /**
     * This logic is used in replicated mode caches.
     */
-   public static class ReplicationLogic extends InvalidationLogic {
+   class ReplicationLogic extends InvalidationLogic {
 
       private StateTransferLock stateTransferLock;
 
@@ -330,11 +365,11 @@ public interface ClusteringDependentLogic {
       }
 
       @Override
-      public void commitEntry(CacheEntry entry, Metadata metadata, FlagAffectedCommand command, InvocationContext ctx,
-                              Flag trackFlag, boolean l1Invalidation) {
+      protected void commitSingleEntry(CacheEntry entry, Metadata metadata, FlagAffectedCommand command,
+                                       InvocationContext ctx, Flag trackFlag, boolean l1Invalidation) {
          stateTransferLock.acquireSharedTopologyLock();
          try {
-            super.commitEntry(entry, metadata, command, ctx, trackFlag, l1Invalidation);
+            super.commitSingleEntry(entry, metadata, command, ctx, trackFlag, l1Invalidation);
          } finally {
             stateTransferLock.releaseSharedTopologyLock();
          }
@@ -363,7 +398,7 @@ public interface ClusteringDependentLogic {
    /**
     * This logic is used in distributed mode caches.
     */
-   public static class DistributionLogic extends AbstractClusteringDependentLogic {
+   class DistributionLogic extends AbstractClusteringDependentLogic {
 
       private DistributionManager dm;
       private Configuration configuration;
@@ -401,8 +436,8 @@ public interface ClusteringDependentLogic {
       }
 
       @Override
-      public void commitEntry(CacheEntry entry, Metadata metadata, FlagAffectedCommand command, InvocationContext ctx,
-                              Flag trackFlag, boolean l1Invalidation) {
+      protected void commitSingleEntry(CacheEntry entry, Metadata metadata, FlagAffectedCommand command,
+                                       InvocationContext ctx, Flag trackFlag, boolean l1Invalidation) {
          // Don't allow the CH to change (and state transfer to invalidate entries)
          // between the ownership check and the commit
          stateTransferLock.acquireSharedTopologyLock();
@@ -440,21 +475,26 @@ public interface ClusteringDependentLogic {
 
             boolean created = false;
             boolean removed = false;
-            boolean evicted = false;
             if (!isForeignOwned) {
                created = entry.isCreated();
                removed = entry.isRemoved();
-               evicted = entry.isEvicted();
             }
 
-            if (doCommit)
+            if (doCommit) {
+               InternalCacheEntry previousEntry = dataContainer.peek(entry.getKey());
+               Object previousValue = null;
+               Metadata previousMetadata = null;
+               if (previousEntry != null) {
+                  previousValue = previousEntry.getValue();
+                  previousMetadata = previousEntry.getMetadata();
+               }
                commitManager.commit(entry, metadata, trackFlag, l1Invalidation);
-            else
+               if (!isForeignOwned) {
+                  notifyCommitEntry(created, removed, entry, ctx, command, previousValue, previousMetadata);
+               }
+            } else
                entry.rollback();
 
-            if (!isForeignOwned) {
-               notifyCommitEntry(created, removed, evicted, entry, ctx, command);
-            }
          } finally {
             stateTransferLock.releaseSharedTopologyLock();
          }

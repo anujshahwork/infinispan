@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <infinispan
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-      xsi:schemaLocation="urn:infinispan:config:7.0 http://www.infinispan.org/schemas/infinispan-config-7.0.xsd
-                          urn:infinispan:config:store:jdbc:7.0 http://docs.jboss.org/infinispan/schemas/infinispan-cachestore-jdbc-config-7.0.xsd"
-      xmlns="urn:infinispan:config:7.0">
+      xsi:schemaLocation="urn:infinispan:config:8.0 http://www.infinispan.org/schemas/infinispan-config-8.0.xsd
+                          urn:infinispan:config:store:jdbc:8.0 http://docs.jboss.org/infinispan/schemas/infinispan-cachestore-jdbc-config-8.0.xsd"
+      xmlns="urn:infinispan:config:8.0">
 
    <cache-container>
       <transport cluster="MyCluster"/>
@@ -11,29 +11,29 @@
          <transaction mode="NON_XA" />
          <indexing index="ALL">
             <property name="default.indexmanager">org.infinispan.query.indexmanager.InfinispanIndexManager</property>
-            <property name="lucene_version">LUCENE_48</property>
-
+            <property name="default.reader.strategy">shared</property>
             <property name="default.locking_cachename">LuceneIndexesLocking_custom1</property>
             <property name="default.data_cachename">LuceneIndexesData_custom1</property>
             <property name="default.metadata_cachename">LuceneIndexesMetadata_custom1</property>
+            <property name="error_handler">org.infinispan.query.helper.StaticTestingErrorHandler</property>
          </indexing>
       </replicated-cache>
       <replicated-cache name="LuceneIndexesMetadata_custom1">
          <transaction mode="NON_XA" />
          <indexing index="NONE" />
          <persistence>
-            <string-keyed-jdbc-store xmlns="urn:infinispan:config:store:jdbc:7.0"
+            <string-keyed-jdbc-store xmlns="urn:infinispan:config:store:jdbc:8.0"
                                   key-to-string-mapper="org.infinispan.lucene.LuceneKey2StringMapper"
                                   fetch-state="false"
                                   read-only="false"
                                   preload="true"
                                   purge="false">
-               <string-keyed-table drop-on-exit="true" create-on-start="true" prefix="ISPN_STRING_TABLE">
+               <string-keyed-table drop-on-exit="true" create-on-start="true" prefix="ISPN_STRING_TABLE_METADATA">
                   <id-column name="ID_COLUMN" type="VARCHAR(255)" />
                   <data-column name="DATA_COLUMN" type="BINARY" />
                   <timestamp-column name="TIMESTAMP_COLUMN" type="BIGINT" />
                </string-keyed-table>
-               <write-behind flush-lock-timeout="5000" modification-queue-size="1024" shutdown-timeout="25000" thread-pool-size="2"/>
+               <write-behind flush-lock-timeout="5000" modification-queue-size="1024" shutdown-timeout="25000" thread-pool-size="1"/>
             </string-keyed-jdbc-store>
          </persistence>
       </replicated-cache>
@@ -44,18 +44,18 @@
          <transaction mode="NON_XA" />
          <indexing index="NONE" />
          <persistence>
-            <string-keyed-jdbc-store xmlns="urn:infinispan:config:store:jdbc:7.0"
+            <string-keyed-jdbc-store xmlns="urn:infinispan:config:store:jdbc:8.0"
                                      key-to-string-mapper="org.infinispan.lucene.LuceneKey2StringMapper"
                                      fetch-state="false"
                                      read-only="false"
                                      preload="true"
                                      purge="false">
-               <string-keyed-table drop-on-exit="true" create-on-start="true" prefix="ISPN_STRING_TABLE">
+               <string-keyed-table drop-on-exit="true" create-on-start="true" prefix="ISPN_STRING_TABLE_DATA">
                   <id-column name="ID_COLUMN" type="VARCHAR(255)" />
                   <data-column name="DATA_COLUMN" type="BINARY" />
                   <timestamp-column name="TIMESTAMP_COLUMN" type="BIGINT" />
                </string-keyed-table>
-               <write-behind flush-lock-timeout="5000" modification-queue-size="1024" shutdown-timeout="25000" thread-pool-size="2"/>
+               <write-behind flush-lock-timeout="5000" modification-queue-size="1024" shutdown-timeout="25000" thread-pool-size="1"/>
             </string-keyed-jdbc-store>
          </persistence>
       </replicated-cache>
@@ -66,18 +66,18 @@
          <transaction mode="NON_XA" />
          <indexing index="NONE" />
          <persistence>
-            <string-keyed-jdbc-store xmlns="urn:infinispan:config:store:jdbc:7.0"
+            <string-keyed-jdbc-store xmlns="urn:infinispan:config:store:jdbc:8.0"
                                      key-to-string-mapper="org.infinispan.lucene.LuceneKey2StringMapper"
                                      fetch-state="false"
                                      read-only="false"
                                      preload="true"
                                      purge="false">
-               <string-keyed-table drop-on-exit="true" create-on-start="true" prefix="ISPN_STRING_TABLE">
+               <string-keyed-table drop-on-exit="true" create-on-start="true" prefix="ISPN_STRING_TABLE_LOCK">
                   <id-column name="ID_COLUMN" type="VARCHAR(255)" />
                   <data-column name="DATA_COLUMN" type="BINARY" />
                   <timestamp-column name="TIMESTAMP_COLUMN" type="BIGINT" />
                </string-keyed-table>
-               <write-behind flush-lock-timeout="5000" modification-queue-size="1024" shutdown-timeout="25000" thread-pool-size="2"/>
+               <write-behind flush-lock-timeout="5000" modification-queue-size="1024" shutdown-timeout="25000" thread-pool-size="1"/>
             </string-keyed-jdbc-store>
          </persistence>
       </replicated-cache>

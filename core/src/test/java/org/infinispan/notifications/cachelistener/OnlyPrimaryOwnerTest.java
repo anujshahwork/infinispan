@@ -15,9 +15,9 @@ import org.infinispan.context.impl.NonTxInvocationContext;
 import org.infinispan.context.impl.TxInvocationContext;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.interceptors.locking.ClusteringDependentLogic;
-import org.infinispan.iteration.impl.EntryRetriever;
 import org.infinispan.lifecycle.ComponentStatus;
 import org.infinispan.metadata.Metadata;
+import org.infinispan.notifications.cachelistener.cluster.ClusterEventManager;
 import org.infinispan.notifications.cachelistener.event.CacheEntryCreatedEvent;
 import org.infinispan.notifications.cachelistener.event.Event;
 import org.infinispan.remoting.transport.Address;
@@ -32,9 +32,7 @@ import java.util.List;
 
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @Test(testName = "notifications.cachelistener.OnlyPrimaryOwnerTest", groups = "unit")
 public class OnlyPrimaryOwnerTest {
@@ -58,8 +56,8 @@ public class OnlyPrimaryOwnerTest {
       };
       when(mockCache.getAdvancedCache().getComponentRegistry().getComponent(any(Class.class))).then(answer);
       when(mockCache.getAdvancedCache().getComponentRegistry().getComponent(any(Class.class), anyString())).then(answer);
-      n.injectDependencies(mockCache, cdl, null, config, mock(DistributionManager.class), mock(EntryRetriever.class),
-                           mock(InternalEntryFactory.class));
+      n.injectDependencies(mockCache, cdl, null, config, mock(DistributionManager.class),
+                           mock(InternalEntryFactory.class), mock(ClusterEventManager.class));
       cl = new PrimaryOwnerCacheListener();
       n.start();
       n.addListener(cl);
@@ -114,7 +112,7 @@ public class OnlyPrimaryOwnerTest {
       // Is not owner nor primary owner
       cdl.isOwner = false;
       cdl.isPrimaryOwner = false;
-      n.notifyCacheEntryCreated("reject", null, true, ctx, null);
+      n.notifyCacheEntryCreated("reject", "v1", true, ctx, null);
       n.notifyCacheEntryCreated("reject", "v1", false, ctx, null);
 
       assert !cl.isReceivedPost();
@@ -124,7 +122,7 @@ public class OnlyPrimaryOwnerTest {
       // Is an owner but not primary owner
       cdl.isOwner = true;
       cdl.isPrimaryOwner = false;
-      n.notifyCacheEntryCreated("reject", null, true, ctx, null);
+      n.notifyCacheEntryCreated("reject", "v1", true, ctx, null);
       n.notifyCacheEntryCreated("reject", "v1", false, ctx, null);
 
       assert !cl.isReceivedPost();
@@ -134,7 +132,7 @@ public class OnlyPrimaryOwnerTest {
       // Is primary owner
       cdl.isOwner = true;
       cdl.isPrimaryOwner = true;
-      n.notifyCacheEntryCreated("accept", null, true, ctx, null);
+      n.notifyCacheEntryCreated("accept", "v1", true, ctx, null);
       n.notifyCacheEntryCreated("accept", "v1", false, ctx, null);
 
       assert cl.isReceivedPost();

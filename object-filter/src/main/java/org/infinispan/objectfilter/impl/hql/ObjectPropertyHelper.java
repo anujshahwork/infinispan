@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.TimeZone;
 
 /**
+ * A specialised {@link PropertyHelper} able to handle non-Class metadata.
+ *
  * @author anistor@redhat.com
  * @since 7.0
  */
@@ -21,12 +23,20 @@ public abstract class ObjectPropertyHelper<TypeMetadata> implements PropertyHelp
 
    private static final Log log = Logger.getMessageLogger(Log.class, ObjectPropertyHelper.class.getName());
 
+   private static final String DATE_FORMAT = "yyyyMMddHHmmssSSS";   //todo [anistor] is there a standard jpa time format?
+
    private static final TimeZone GMT_TZ = TimeZone.getTimeZone("GMT");
 
-   private final DateFormat dateFormat = new SimpleDateFormat("yyyyMMddHHmmssSSS");   //todo [anistor] is there a standard jpa time format?
+   protected final EntityNamesResolver entityNamesResolver;
 
-   protected ObjectPropertyHelper() {
+   protected ObjectPropertyHelper(EntityNamesResolver entityNamesResolver) {
+      this.entityNamesResolver = entityNamesResolver;
+   }
+
+   protected DateFormat getDateFormat() {
+      SimpleDateFormat dateFormat = new SimpleDateFormat(DATE_FORMAT);
       dateFormat.setTimeZone(GMT_TZ);
+      return dateFormat;
    }
 
    /**
@@ -48,7 +58,7 @@ public abstract class ObjectPropertyHelper<TypeMetadata> implements PropertyHelp
 
       if (Date.class.isAssignableFrom(propertyType)) {
          try {
-            return dateFormat.parse(value);
+            return getDateFormat().parse(value);
          } catch (ParseException e) {
             throw log.getInvalidDateLiteralException(value);
          }
@@ -111,7 +121,7 @@ public abstract class ObjectPropertyHelper<TypeMetadata> implements PropertyHelp
     *
     * @param entityType   the FQN of the entity type
     * @param propertyPath the path of the property
-    * @return the class or null if not a primitive property
+    * @return the {@link Class} or {@code null} if not a primitive property
     */
    public abstract Class<?> getPrimitivePropertyType(String entityType, List<String> propertyPath);
 
@@ -119,7 +129,22 @@ public abstract class ObjectPropertyHelper<TypeMetadata> implements PropertyHelp
 
    public abstract boolean hasEmbeddedProperty(String entityType, List<String> propertyPath);
 
-   public abstract EntityNamesResolver getEntityNamesResolver();
+   /**
+    * Tests if the attribute path contains repeated (collection/array) attributes.
+    */
+   public abstract boolean isRepeatedProperty(String entityType, List<String> propertyPath);
 
+   /**
+    * This is an alternative to {@link EntityNamesResolver#getClassFromName}, because not everything is a {@link
+    * Class}.
+    *
+    * @param targetTypeName the fully qualified type name
+    * @return the metadata representation
+    */
    public abstract TypeMetadata getEntityMetadata(String targetTypeName);
+
+   @Override
+   public Object convertToBackendType(String entityType, List<String> propertyPath, Object value) {
+      return value;
+   }
 }

@@ -3,7 +3,7 @@ package org.infinispan.interceptors.base;
 import org.infinispan.Cache;
 import org.infinispan.cache.impl.CacheImpl;
 import org.infinispan.commands.AbstractVisitor;
-import org.infinispan.commands.FlagAffectedCommand;
+import org.infinispan.commands.LocalFlagAffectedCommand;
 import org.infinispan.commands.VisitableCommand;
 import org.infinispan.commands.Visitor;
 import org.infinispan.commands.read.GetKeyValueCommand;
@@ -14,16 +14,17 @@ import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.interceptors.InterceptorChain;
-import org.infinispan.remoting.InboundInvocationHandler;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+
+import java.util.Set;
 
 /**
  * This is the base class for all interceptors to extend, and implements the {@link Visitor} interface allowing it to
  * intercept invocations on {@link VisitableCommand}s.
  * <p/>
  * Commands are either created by the {@link CacheImpl} (for invocations on the {@link Cache} public interface), or
- * by the {@link InboundInvocationHandler} for remotely originating invocations, and are passed up the interceptor chain
+ * by the {@link org.infinispan.remoting.inboundhandler.InboundInvocationHandler} for remotely originating invocations, and are passed up the interceptor chain
  * by using the {@link InterceptorChain} helper class.
  * <p/>
  * When writing interceptors, authors can either override a specific visitXXX() method (such as {@link
@@ -112,7 +113,7 @@ public abstract class CommandInterceptor extends AbstractVisitor {
       return invokeNextInterceptor(ctx, command);
    }
 
-   protected final long getLockAcquisitionTimeout(FlagAffectedCommand command, boolean skipLocking) {
+   protected final long getLockAcquisitionTimeout(LocalFlagAffectedCommand command, boolean skipLocking) {
       if (!skipLocking)
          return command.hasFlag(Flag.ZERO_LOCK_ACQUISITION_TIMEOUT) ?
                0 : cacheConfiguration.locking().lockAcquisitionTimeout();
@@ -120,8 +121,16 @@ public abstract class CommandInterceptor extends AbstractVisitor {
       return -1;
    }
 
-   protected final boolean hasSkipLocking(FlagAffectedCommand command) {
+   protected final boolean hasSkipLocking(LocalFlagAffectedCommand command) {
       return command.hasFlag(Flag.SKIP_LOCKING);
    }
 
+   protected <K, V> Cache<K, V> getCacheWithFlags(Cache<K, V> cache, LocalFlagAffectedCommand command) {
+      Set<Flag> flags = command.getFlags();
+      if (flags != null && !flags.isEmpty()) {
+         return cache.getAdvancedCache().withFlags(flags.toArray(new Flag[flags.size()]));
+      } else {
+         return cache;
+      }
+   }
 }

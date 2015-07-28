@@ -23,7 +23,7 @@ import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.testng.annotations.Test;
 
-@Test(groups = "functional", testName = "jmx.CacheMBeanTest")
+@Test(groups = {"functional", "smoke"}, testName = "jmx.CacheMBeanTest")
 public class CacheMBeanTest extends MultipleCacheManagersTest {
    private static final Log log = LogFactory.getLog(CacheMBeanTest.class);
    public static final String JMX_DOMAIN = CacheMBeanTest.class.getSimpleName();
@@ -131,18 +131,14 @@ public class CacheMBeanTest extends MultipleCacheManagersTest {
       withCacheManager(new CacheManagerCallable(
             TestCacheManagerFactory.createCacheManagerEnforceJmxDomain(jmxDomain, false, false)) {
          @Override
-         public void call() {
-            try {
-               cm.getCache();
-               ObjectName cacheObjectName = getCacheObjectName(jmxDomain);
-               assertTrue(cacheObjectName + " should be registered",
-                     server.isRegistered(cacheObjectName));
-               TestingUtil.killCacheManagers(cm);
-               assertFalse(cacheObjectName + " should NOT be registered",
-                     server.isRegistered(cacheObjectName));
-            } catch (Exception e) {
-               throw new RuntimeException(e);
-            }
+         public void call() throws Exception {
+            cm.getCache();
+            ObjectName cacheObjectName = getCacheObjectName(jmxDomain);
+            assertTrue(cacheObjectName + " should be registered",
+                  server.isRegistered(cacheObjectName));
+            TestingUtil.killCacheManagers(cm);
+            assertFalse(cacheObjectName + " should NOT be registered",
+                  server.isRegistered(cacheObjectName));
          }
       });
    }

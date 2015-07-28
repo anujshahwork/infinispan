@@ -13,7 +13,16 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.infinispan.commons.util.Immutables.immutableMapCopy;
-import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.*;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.FD;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.FD_ALL;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.FD_ALL2;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.FD_SOCK;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.MERGE3;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.RELAY2;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.TCP;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.TEST_PING;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.UDP;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.VERIFY_SUSPECT;
 
 /**
  * This class owns the logic of associating network resources(i.e. ports) with threads, in order to make sure that there
@@ -81,10 +90,10 @@ public class JGroupsConfigBuilder {
             getJGroupsProtocolCfg(tcpConfigurator.getProtocolStack());
 
       if (!flags.withFD())
-         removeFailureDetectionTcp(jgroupsCfg);
+         removeFailureDetection(jgroupsCfg);
 
       if (!flags.isSiteIndexSpecified()) {
-         removeRela2(jgroupsCfg);
+         removeRelay2(jgroupsCfg);
       } else {
          ProtocolConfiguration protocol = jgroupsCfg.getProtocol(RELAY2);
          protocol.getProperties().put("site", flags.siteName());
@@ -107,20 +116,20 @@ public class JGroupsConfigBuilder {
    }
 
    private static void removeMerge(JGroupsProtocolCfg jgroupsCfg) {
-      jgroupsCfg.removeProtocol(MERGE2);
+      jgroupsCfg.removeProtocol(MERGE3);
    }
 
    public static String getUdpConfig(String fullTestName, TransportFlags flags) {
       JGroupsProtocolCfg jgroupsCfg = getJGroupsProtocolCfg(udpConfigurator.getProtocolStack());
 
       if (!flags.withFD())
-         removeFailureDetectionUdp(jgroupsCfg);
+         removeFailureDetection(jgroupsCfg);
 
       if (!flags.withMerge())
          removeMerge(jgroupsCfg);
 
       if (!flags.isSiteIndexSpecified()) {
-         removeRela2(jgroupsCfg);
+         removeRelay2(jgroupsCfg);
       }
 
       if (jgroupsCfg.containsProtocol(TEST_PING)) {
@@ -133,14 +142,14 @@ public class JGroupsConfigBuilder {
 
    /**
     * Remove all failure detection related
-    * protocols from the given JGroups TCP stack.
+    * protocols from the given JGroups stack.
     */
-   private static void removeFailureDetectionTcp(JGroupsProtocolCfg jgroupsCfg) {
-      jgroupsCfg.removeProtocol(FD)
+   private static void removeFailureDetection(JGroupsProtocolCfg jgroupsCfg) {
+      jgroupsCfg.removeProtocol(FD).removeProtocol(FD_SOCK).removeProtocol(FD_ALL).removeProtocol(FD_ALL2)
             .removeProtocol(VERIFY_SUSPECT);
    }
 
-   private static void removeRela2(JGroupsProtocolCfg jgroupsCfg) {
+   private static void removeRelay2(JGroupsProtocolCfg jgroupsCfg) {
       jgroupsCfg.removeProtocol(RELAY2);
    }
 
@@ -151,12 +160,11 @@ public class JGroupsConfigBuilder {
       return replaceProperties(jgroupsCfg, props, type);
    }
 
-   private static void removeFailureDetectionUdp(JGroupsProtocolCfg jgroupsCfg) {
-      jgroupsCfg.removeProtocol(FD_SOCK).removeProtocol(FD_ALL);
-   }
-
    private static String replaceMCastAddressAndPort(JGroupsProtocolCfg jgroupsCfg) {
-      Map<String, String> props = jgroupsCfg.getProtocol(UDP).getProperties();
+      ProtocolConfiguration udp = jgroupsCfg.getProtocol(UDP);
+      if (udp == null) return jgroupsCfg.toString();
+
+      Map<String, String> props = udp.getProperties();
       props.put("mcast_addr", threadMcastIP.get());
       props.put("mcast_port", threadMcastPort.get().toString());
       return replaceProperties(jgroupsCfg, props, UDP);
@@ -282,10 +290,10 @@ public class JGroupsConfigBuilder {
    }
 
    enum ProtocolType {
-      TCP, UDP,
-      MPING, PING, TCPPING, TEST_PING,
-      MERGE2,
-      FD_SOCK, FD, VERIFY_SUSPECT, FD_ALL,
+      TCP, UDP, SHARED_LOOPBACK,
+      MPING, PING, TCPPING, TEST_PING, SHARED_LOOPBACK_PING,
+      MERGE2, MERGE3,
+      FD_SOCK, FD, VERIFY_SUSPECT, FD_ALL, FD_ALL2,
       BARRIER,
       UNICAST, UNICAST2, UNICAST3,
       NAKACK, NAKACK2,

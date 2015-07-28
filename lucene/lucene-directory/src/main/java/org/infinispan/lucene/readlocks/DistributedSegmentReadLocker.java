@@ -29,7 +29,7 @@ public class DistributedSegmentReadLocker implements SegmentReadLocker {
 
    private final AdvancedCache<Object, Integer> locksCache;
    private final AdvancedCache<?, ?> chunksCache;
-   private final AdvancedCache<?, ?> metadataCache;
+   private final AdvancedCache<FileCacheKey, FileMetadata> metadataCache;
    private final String indexName;
    private final boolean forceSynchronousDeletes;
 
@@ -50,7 +50,7 @@ public class DistributedSegmentReadLocker implements SegmentReadLocker {
       this.indexName = indexName;
       this.locksCache = locksCache.getAdvancedCache().withFlags(Flag.SKIP_CACHE_STORE, Flag.SKIP_CACHE_LOAD, Flag.SKIP_INDEXING);
       this.chunksCache = chunksCache.getAdvancedCache().withFlags(Flag.SKIP_INDEXING);
-      this.metadataCache = metadataCache.getAdvancedCache().withFlags(Flag.SKIP_INDEXING);
+      this.metadataCache = (AdvancedCache<FileCacheKey, FileMetadata>) metadataCache.getAdvancedCache().withFlags(Flag.SKIP_INDEXING);
       verifyCacheHasNoEviction(this.locksCache);
    }
 
@@ -60,35 +60,61 @@ public class DistributedSegmentReadLocker implements SegmentReadLocker {
 
    /**
     * Deletes or releases a read-lock for the specified filename, so that if it was marked as deleted and
-    * no other {@link InfinispanIndexInput} instances are reading from it, then it will
+    * no other {@link org.infinispan.lucene.impl.InfinispanIndexInput} instances are reading from it, then it will
     * be effectively deleted.
     *
     * @see #acquireReadLock(String)
-    * @see Directory#deleteFile(String)
+    * @see org.apache.lucene.store.Directory#deleteFile(String)
     */
    @Override
-   public void deleteOrReleaseReadLock(String filename) {
-      FileReadLockKey readLockKey = new FileReadLockKey(indexName, filename);
-      int newValue = 0;
-      boolean done = false;
-      Object lockValue = locksCache.get(readLockKey);
-      while (done == false) {
-         if (lockValue == null) {
-            lockValue = locksCache.putIfAbsent(readLockKey, 0);
-            done = (null == lockValue);
-         }
-         else {
-            Integer refCountObject = (Integer) lockValue;
-            int refCount = refCountObject.intValue();
-            newValue = refCount - 1;
-            done = locksCache.replace(readLockKey, refCountObject, newValue);
-            if (!done) {
-               lockValue = locksCache.get(readLockKey);
+   public void deleteOrReleaseReadLock(final String filename) {
+      if (isMultiChunked(filename)) {
+         int newValue = 0;
+         FileReadLockKey readLockKey = new FileReadLockKey(indexName, filename);
+         boolean done = false;
+         Object lockValue = locksCache.get(readLockKey);
+         while (!done) {
+            if (lockValue == null) {
+               lockValue = locksCache.putIfAbsent(readLockKey, 0);
+               done = (null == lockValue);
+            }
+            else {
+               Integer refCountObject = (Integer) lockValue;
+               int refCount = refCountObject.intValue();
+               newValue = refCount - 1;
+               done = locksCache.replace(readLockKey, refCountObject, newValue);
+               if (!done) {
+                  lockValue = locksCache.get(readLockKey);
+               }
             }
          }
+         if (newValue == 0) {
+            realFileDelete(indexName, filename, locksCache, chunksCache, metadataCache, forceSynchronousDeletes);
+         }
       }
-      if (newValue == 0) {
-         realFileDelete(readLockKey, locksCache, chunksCache, metadataCache, forceSynchronousDeletes);
+      else {
+         realFileDelete(indexName, filename, locksCache, chunksCache, metadataCache, forceSynchronousDeletes);
+      }
+   }
+
+   /**
+    * Evaluates if the file is potentially being stored as fragmented into multiple chunks;
+    * when it's a single chunk we don't need to apply readlocks.
+    * @param filename
+    * @return true if it is definitely fragmented, or if it's possibly fragmented.
+    */
+   private boolean isMultiChunked(final String filename) {
+      final FileCacheKey fileCacheKey = new FileCacheKey(indexName, filename);
+      final FileMetadata fileMetadata = metadataCache.get(fileCacheKey);
+      if (fileMetadata==null) {
+         //This might happen under high load when the metadata is being written
+         //using putAsync; in such case we return true as it's the safest option.
+         //Skipping the readlocks is just a performance optimisation, and this
+         //condition is extremely rare.
+         return true;
+      }
+      else {
+         return fileMetadata.isMultiChunked();
       }
    }
 
@@ -144,31 +170,30 @@ public class DistributedSegmentReadLocker implements SegmentReadLocker {
    }
 
    /**
-    * The {@link Directory#deleteFile(String)} is not deleting the elements from the cache
+    * The {@link org.apache.lucene.store.Directory#deleteFile(String)} is not deleting the elements from the cache
     * but instead flagging the file as deletable.
     * This method will really remove the elements from the cache; should be invoked only
     * by {@link #deleteOrReleaseReadLock(String)} after having verified that there
     * are no users left in need to read these chunks.
     *
-    * @param readLockKey the key representing the values to be deleted
+    * @param indexName the index name to delete the file from
+    * @param fileName the name of the file to delete
     * @param locksCache the cache containing the locks
     * @param chunksCache the cache containing the chunks to be deleted
     * @param metadataCache the cache containing the metadata of elements to be deleted
     * @param forceSynchronousDeletes when false deletion of chunk data is performed asynchronously
     */
-   static void realFileDelete(FileReadLockKey readLockKey, AdvancedCache<Object, Integer> locksCache,
+   static void realFileDelete(String indexName, String fileName, AdvancedCache<Object, Integer> locksCache,
                               AdvancedCache<?, ?> chunksCache, AdvancedCache<?, ?> metadataCache, boolean forceSynchronousDeletes) {
       final boolean trace = log.isTraceEnabled();
-      final String indexName = readLockKey.getIndexName();
-      final String filename = readLockKey.getFileName();
-      final FileCacheKey key = new FileCacheKey(indexName, filename);
+      final FileCacheKey key = new FileCacheKey(indexName, fileName);
       if (trace) log.tracef("deleting metadata: %s", key);
       final FileMetadata file = (FileMetadata) metadataCache.remove(key);
       if (file != null) { //during optimization of index a same file could be deleted twice, so you could see a null here
          final int bufferSize = file.getBufferSize();
          AdvancedCache<?, ?> chunksCacheNoReturn = chunksCache.withFlags(Flag.IGNORE_RETURN_VALUES);
          for (int i = 0; i < file.getNumberOfChunks(); i++) {
-            ChunkCacheKey chunkKey = new ChunkCacheKey(indexName, filename, i, bufferSize);
+            ChunkCacheKey chunkKey = new ChunkCacheKey(indexName, fileName, i, bufferSize);
             if (trace) log.tracef("deleting chunk: %s", chunkKey);
             if (forceSynchronousDeletes) {
                chunksCacheNoReturn.remove(chunkKey);
@@ -180,12 +205,14 @@ public class DistributedSegmentReadLocker implements SegmentReadLocker {
       }
       // last operation, as being set as value==0 it prevents others from using it during the
       // deletion process:
-      if (trace) log.tracef("deleting readlock: %s", readLockKey);
-      if (forceSynchronousDeletes) {
-         locksCache.withFlags(Flag.IGNORE_RETURN_VALUES).remove(readLockKey);
-      }
-      else {
-         locksCache.withFlags(Flag.IGNORE_RETURN_VALUES).removeAsync(readLockKey);
+      if (file != null && file.isMultiChunked()) {
+         FileReadLockKey readLockKey = new FileReadLockKey(indexName, fileName);
+         if (trace) log.tracef("deleting readlock: %s", readLockKey);
+         if (forceSynchronousDeletes) {
+            locksCache.withFlags(Flag.IGNORE_RETURN_VALUES).remove(readLockKey);
+         } else {
+            locksCache.withFlags(Flag.IGNORE_RETURN_VALUES).removeAsync(readLockKey);
+         }
       }
    }
 

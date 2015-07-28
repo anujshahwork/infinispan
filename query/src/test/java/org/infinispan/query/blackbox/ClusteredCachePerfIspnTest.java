@@ -23,15 +23,13 @@ public class ClusteredCachePerfIspnTest extends ClusteredCacheTest {
       cacheCfg.indexing()
             .index(Index.ALL)
             .addProperty("default.indexmanager", "near-real-time")
+            .addProperty("error_handler", "org.infinispan.query.helper.StaticTestingErrorHandler")
             .addProperty("default.directory_provider", "infinispan")
             .addProperty("default.chunk_size", "128000")
-            .addProperty("default.exclusive_index_use", "true")
             .addProperty("default.indexwriter.merge_factor", "30")
             .addProperty("default.indexwriter.merge_max_size", "1024")
             .addProperty("default.indexwriter.ram_buffer_size", "64")
-            .addProperty("default.​locking_strategy", "native")
-            .addProperty("default.sharding_strategy.nbr_of_shards", "6")
-            .addProperty("lucene_version", "LUCENE_48");
+            .addProperty("default.sharding_strategy.nbr_of_shards", "6");
 
       enhanceConfig(cacheCfg);
 

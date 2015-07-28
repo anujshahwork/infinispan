@@ -6,10 +6,10 @@ import org.infinispan.commons.CacheException;
 import org.infinispan.protostream.ProtobufParser;
 import org.infinispan.protostream.SerializationContext;
 import org.infinispan.protostream.TagHandler;
+import org.infinispan.protostream.WrappedMessage;
 import org.infinispan.protostream.descriptors.Descriptor;
 import org.infinispan.protostream.descriptors.JavaType;
 import org.infinispan.protostream.descriptors.Type;
-import org.infinispan.protostream.impl.WrappedMessageMarshaller;
 
 import java.io.IOException;
 
@@ -17,7 +17,7 @@ import java.io.IOException;
  * @author anistor@redhat.com
  * @since 6.0
  */
-class WrappedMessageTagHandler implements TagHandler {
+final class WrappedMessageTagHandler implements TagHandler {
 
    private final Document document;
    private final LuceneOptions luceneOptions;
@@ -41,31 +41,35 @@ class WrappedMessageTagHandler implements TagHandler {
    @Override
    public void onTag(int fieldNumber, String fieldName, Type type, JavaType javaType, Object value) {
       switch (fieldNumber) {
-         case WrappedMessageMarshaller.WRAPPED_BOOL:
+         case WrappedMessage.WRAPPED_BOOL:
             numericValue = Boolean.TRUE.equals(value) ? IndexingTagHandler.TRUE_INT : IndexingTagHandler.FALSE_INT;
             break;
-         case WrappedMessageMarshaller.WRAPPED_BYTES:
-         case WrappedMessageMarshaller.WRAPPED_STRING:
+         case WrappedMessage.WRAPPED_BYTES:
+         case WrappedMessage.WRAPPED_STRING:
             stringValue = (String) value;
             break;
-         case WrappedMessageMarshaller.WRAPPED_ENUM:
-         case WrappedMessageMarshaller.WRAPPED_DOUBLE:
-         case WrappedMessageMarshaller.WRAPPED_FLOAT:
-         case WrappedMessageMarshaller.WRAPPED_INT64:
-         case WrappedMessageMarshaller.WRAPPED_INT32:
-         case WrappedMessageMarshaller.WRAPPED_FIXED64:
-         case WrappedMessageMarshaller.WRAPPED_FIXED32:
-         case WrappedMessageMarshaller.WRAPPED_UINT32:
-         case WrappedMessageMarshaller.WRAPPED_SFIXED32:
-         case WrappedMessageMarshaller.WRAPPED_SFIXED64:
-         case WrappedMessageMarshaller.WRAPPED_SINT32:
-         case WrappedMessageMarshaller.WRAPPED_SINT64:
+         case WrappedMessage.WRAPPED_ENUM:
+         case WrappedMessage.WRAPPED_DOUBLE:
+         case WrappedMessage.WRAPPED_FLOAT:
+         case WrappedMessage.WRAPPED_INT64:
+         case WrappedMessage.WRAPPED_INT32:
+         case WrappedMessage.WRAPPED_FIXED64:
+         case WrappedMessage.WRAPPED_FIXED32:
+         case WrappedMessage.WRAPPED_UINT32:
+         case WrappedMessage.WRAPPED_SFIXED32:
+         case WrappedMessage.WRAPPED_SFIXED64:
+         case WrappedMessage.WRAPPED_SINT32:
+         case WrappedMessage.WRAPPED_SINT64:
             numericValue = (Number) value;
             break;
-         case WrappedMessageMarshaller.WRAPPED_DESCRIPTOR_FULL_NAME:
+         case WrappedMessage.WRAPPED_DESCRIPTOR_FULL_NAME:
             messageDescriptor = serCtx.getMessageDescriptor((String) value);
             break;
-         case WrappedMessageMarshaller.WRAPPED_MESSAGE_BYTES:
+         case WrappedMessage.WRAPPED_DESCRIPTOR_ID:
+            String typeName = serCtx.getTypeNameById((Integer) value);
+            messageDescriptor = serCtx.getMessageDescriptor(typeName);
+            break;
+         case WrappedMessage.WRAPPED_MESSAGE_BYTES:
             bytes = (byte[]) value;
             break;
          default:
@@ -87,12 +91,16 @@ class WrappedMessageTagHandler implements TagHandler {
    public void onEnd() {
       if (bytes != null) {
          if (messageDescriptor == null) {
-            throw new IllegalStateException("Descriptor name is missing");
+            throw new IllegalStateException("Type name/id is missing");
          }
-         try {
-            ProtobufParser.INSTANCE.parse(new IndexingTagHandler(messageDescriptor, document), messageDescriptor, bytes);
-         } catch (IOException e) {
-            throw new CacheException(e);
+         IndexingMetadata indexingMetadata = messageDescriptor.getProcessedAnnotation(IndexingMetadata.INDEXED_ANNOTATION);
+         // if the message definition is not annotated at all we consider all fields indexed and stored, just to be backwards compatible
+         if (indexingMetadata == null || indexingMetadata.isIndexed()) {
+            try {
+               ProtobufParser.INSTANCE.parse(new IndexingTagHandler(messageDescriptor, document), messageDescriptor, bytes);
+            } catch (IOException e) {
+               throw new CacheException(e);
+            }
          }
       } else if (numericValue != null) {
          //todo [anistor] how do we index a scalar value?

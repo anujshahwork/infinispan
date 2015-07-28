@@ -27,7 +27,7 @@ import java.util.List;
  *
  * @author Anna Manukyan
  */
-@Test(groups = "functional", testName = "query.queries.spatial.QuerySpatialTest")
+@Test(groups = {"functional", "smoke"}, testName = "query.queries.spatial.QuerySpatialTest")
 public class QuerySpatialTest extends SingleCacheManagerTest {
 
    public QuerySpatialTest() {
@@ -51,7 +51,7 @@ public class QuerySpatialTest extends SingleCacheManagerTest {
       double centerLongitude = 31.5;
 
       Query query = Search.getSearchManager(cache).buildQueryBuilderForClass(CitySpatial.class).get().spatial()
-         .onCoordinates("city_location")
+         .onField("city_location")
          .within(50, Unit.KM).ofLatitude(centerLatitude).andLongitude(centerLongitude).createQuery();
 
       CacheQuery cacheQuery = Search.getSearchManager(cache).getQuery(query);
@@ -60,7 +60,7 @@ public class QuerySpatialTest extends SingleCacheManagerTest {
       assertEquals(0, found.size());
 
       query = Search.getSearchManager(cache).buildQueryBuilderForClass(CitySpatial.class).get().spatial()
-            .onCoordinates("city_location")
+            .onField("city_location")
             .within(51, Unit.KM).ofLatitude(centerLatitude).andLongitude(centerLongitude).createQuery();
 
       cacheQuery = Search.getSearchManager(cache).getQuery(query);

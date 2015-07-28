@@ -4,7 +4,7 @@
    <parent>
       <groupId>org.infinispan</groupId>
       <artifactId>infinispan-bom</artifactId>
-      <version>7.0.0-SNAPSHOT</version>
+      <version>8.0.0-SNAPSHOT</version>
       <relativePath>../bom/pom.xml</relativePath>
    </parent>
    <artifactId>infinispan-parent</artifactId>
@@ -81,7 +81,7 @@
       <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
       <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
       <defaultTestGroup>functional,unit,arquillian</defaultTestGroup>
-      <!-- unstable and stress because we can have them inside a functional class, for example -->
+      
       <defaultExcludedTestGroup>unstable,stress,unstable_xsite</defaultExcludedTestGroup>
       <forkJvmArgs>-Xmx1024m -XX:MaxPermSize=256m</forkJvmArgs>
       <testNGListener>org.infinispan.test.fwk.UnitTestTestNGListener</testNGListener>
@@ -91,16 +91,19 @@
       <jboss.snapshots.repo.url>https://repository.jboss.org/nexus/content/repositories/snapshots/</jboss.snapshots.repo.url>
       <packaging>jar</packaging>
       <module.skipComponentMetaDataProcessing>true</module.skipComponentMetaDataProcessing>
+      <module.skipTestComponentMetaDataProcessing>true</module.skipTestComponentMetaDataProcessing>
       <module.metadata.isCoreModule>false</module.metadata.isCoreModule>
-      <!-- Versions for dependencies -->
+      
+      <version.ant>1.9.4</version.ant>
       <version.antlr>3.4</version.antlr>
       <version.apache.ds>2.0.0-M15</version.apache.ds>
-      <version.arquillian>1.0.3.Final</version.arquillian>
+      <version.arquillian>1.1.5.Final</version.arquillian>
       <version.arquillian.container.weld>1.0.0.CR3</version.arquillian.container.weld>
+      <version.aspectj.aspectjweaver>1.8.1</version.aspectj.aspectjweaver>
+      <version.byteman>2.1.4</version.byteman>
       <version.avro>1.7.6</version.avro>
       <version.c3p0>0.9.5-pre8</version.c3p0>
       <version.c3p0_dep.mchange-commons-java>0.2.7</version.c3p0_dep.mchange-commons-java>
-      <version.cdi>1.0-SP4</version.cdi>
       <version.com.intellij.forms_rt>6.0.5</version.com.intellij.forms_rt>
       <version.commons.compress>1.4</version.commons.compress>
       <version.commons.codec>1.4</version.commons.codec>
@@ -112,80 +115,86 @@
       <version.commons.math>2.2</version.commons.math>
       <version.guava>11.0.2</version.guava>
       <version.geronimo.tm>3.1.1</version.geronimo.tm>
-      <version.h2.driver>1.3.173</version.h2.driver>
-      <version.hibernate.annotations>3.5.6-Final</version.hibernate.annotations>
-      <version.hibernate.core>4.2.12.Final</version.hibernate.core>
+      <version.h2.driver>1.4.180</version.h2.driver>
+      <version.h2.driver-within-wildfly>1.3.173</version.h2.driver-within-wildfly>
+      <version.hibernate.core>4.3.10.Final</version.hibernate.core>
       <version.hibernate.entitymanager>${version.hibernate.core}</version.hibernate.entitymanager>
-      <version.hibernate.hql.parser>1.1.0.Alpha3</version.hibernate.hql.parser>
-      <version.hibernate.javax.persistence>1.0.1.Final</version.hibernate.javax.persistence>
+      <version.hibernate.hql.parser>1.3.0.Alpha1</version.hibernate.hql.parser>
       <version.hibernate.osgi>${version.hibernate.core}</version.hibernate.osgi>
       <version.hibernate_dep.antlr>2.7.7_5</version.hibernate_dep.antlr>
-      <version.hibernate_dep.dom4j>1.6.1_5</version.hibernate_dep.dom4j>
       <version.hibernate_dep.classmate>0.5.4</version.hibernate_dep.classmate>
+      <version.hibernate_dep.dom4j>1.6.1_5</version.hibernate_dep.dom4j>
+      <version.hibernate_dep.hibernate-commons-annotations>4.0.5.Final</version.hibernate_dep.hibernate-commons-annotations>
+      <version.hibernate_dep.jandex>1.1.0.Final</version.hibernate_dep.jandex>
       <version.hibernate_dep.javaassist>3.18.1-GA</version.hibernate_dep.javaassist>
-      <version.hibernate_dep.jandex>1.0.3.Final</version.hibernate_dep.jandex>
-      <version.hibernate_dep.hibernate-commons-annotations>4.0.2.Final</version.hibernate_dep.hibernate-commons-annotations>
       <version.httpclient>4.2.4</version.httpclient>
       <version.howl>1.0.1-1</version.howl>
-      <version.jackson>1.9.2</version.jackson>
-      <version.javax.cache>1.0.0</version.javax.cache>
+      <version.jackson>1.9.13</version.jackson>
       <version.javax.cache.cache-tests>${version.javax.cache}</version.javax.cache.cache-tests>
       <version.javax.servlet>2.5</version.javax.servlet>
-      <version.jbossjta>4.17.13.Final</version.jbossjta>
+      <version.jbossjta>5.0.4.Final</version.jbossjta>
       <version.jboss.logging.processor>1.1.0.Final</version.jboss.logging.processor>
       <version.jboss.logmanager>1.3.1.Final</version.jboss.logmanager>
+      <version.jboss.remotingjmx>2.0.0.Final</version.jboss.remotingjmx>
       <version.jboss.sasl>1.0.4.Final</version.jboss.sasl>
-      <version.jboss.spec>1.0.0.Final</version.jboss.spec>
+      <version.jboss.spec>1.0.2.Final</version.jboss.spec>
+      <version.jboss.jboss-transaction-spi>7.1.0.Final</version.jboss.jboss-transaction-spi>
+      <version.jboss.xnio>3.2.2.Final</version.jboss.xnio>
       <version.jcipannotations>1.0</version.jcipannotations>
       <version.jetty>6.1.25</version.jetty>
-      <version.jgoodies.forms>1.0.5</version.jgoodies.forms>
+      <version.jgoodies.forms>1.0.7</version.jgoodies.forms>
       <version.jsap>2.1</version.jsap>
       <version.jstl>1.2</version.jstl>
       <version.junit>4.11</version.junit>
       <version.leveldb>0.7</version.leveldb>
       <version.leveldbjni>1.7</version.leveldbjni>
-      <version.log4j>1.2.16</version.log4j>
-      <version.lucene>4.8.1</version.lucene>
+      <version.log4j>2.3</version.log4j>
+      <version.lucene>4.10.4</version.lucene>
       <version.mc4j>1.2.6</version.mc4j>
-      <version.milyn.smooks>1.2.2</version.milyn.smooks>
       <version.mockito>1.9.5</version.mockito>
       <version.mockito_dep.objenesis>1.4</version.mockito_dep.objenesis>
       <version.mysql.driver>5.1.19</version.mysql.driver>
       <version.org.jboss.naming>5.0.6.CR1</version.org.jboss.naming>
       <version.org.picketbox>4.0.20.Final</version.org.picketbox>
       <version.postgresql.driver>9.3-1101-jdbc41</version.postgresql.driver>
-      <version.resteasy>3.0.7.Final</version.resteasy>
-      <version.shrinkwrapResolver>2.0.0-alpha-6</version.shrinkwrapResolver>
+      <version.resteasy>3.0.11.Final</version.resteasy>
+      <version.shrinkwrapResolver>2.1.0</version.shrinkwrapResolver>
       <version.slf4j>1.7.5</version.slf4j>
       <version.snappy>1.0.5</version.snappy>
       <version.solder>3.1.0.Final</version.solder>
-      <version.spring>3.1.0.RELEASE</version.spring>
+      <version.spring3>3.2.9.RELEASE</version.spring3>
+      <version.spring4>4.1.0.RELEASE</version.spring4>
       <version.spymemcached>2.5</version.spymemcached>
       <version.testng>6.8.8</version.testng>
       <version.testng.arquillian>6.5.2</version.testng.arquillian>
       <version.webdav.servlet>2.0.1</version.webdav.servlet>
       <version.weld>1.1.13.Final</version.weld>
-      <version.wildfly>8.1.0.Final</version.wildfly>
-      <version.javassist>3.18.0-GA</version.javassist>
+      <!-- When updating WildFly version, keep the property version.h2.driver-within-wildfly in synch -->
+      <version.wildfly>9.0.0.CR2</version.wildfly>
+      <version.wildfly.arquillian>1.0.0.Final</version.wildfly.arquillian>
+      <version.wildfly.core>1.0.0.CR6</version.wildfly.core>
+      <version.wildfly.maven.plugin>1.1.0.Alpha2</version.wildfly.maven.plugin>
+      <version.javassist>3.18.1-GA</version.javassist>
       <version.maven.buildhelper>1.8</version.maven.buildhelper>
       <version.maven.bundle>2.4.0</version.maven.bundle>
-      <version.maven.source>2.2.1</version.maven.source>
-      <version.maven.genjavadoc>0.5</version.maven.genjavadoc>
+      <version.maven.source>2.3</version.maven.source>
+      <version.maven.genjavadoc>0.8</version.maven.genjavadoc>
       <version.maven.scala>2.15.2</version.maven.scala>
-      <version.maven.surefire>2.17</version.maven.surefire>
+      <version.maven.surefire>2.18.1</version.maven.surefire>
       <version.maven.invoker>1.8</version.maven.invoker>
+      <version.metainf-services>1.5</version.metainf-services>
       <version.jacoco>0.5.10.201208310627</version.jacoco>
       <version.asm>3.3.1</version.asm>
-      <version.pax.url>1.3.7</version.pax.url>
-      <version.karaf>2.3.3</version.karaf>
-      <version.pax.exam>3.5.0</version.pax.exam>
+      <version.pax.url>2.2.0</version.pax.url>
+      <version.karaf>3.0.4</version.karaf>
+      <version.pax.exam>4.5.0</version.pax.exam>
       <reportTitle>Infinispan JaCoCo Report</reportTitle>
       <dir.ispn>../</dir.ispn>
       <dir.report>../jacoco-html</dir.report>
       <m2e.apt.activation>jdt_apt</m2e.apt.activation>
-      <!-- The version mask restricts the version for all imports to the exact version used in maven. -->
-      <bnd.consumer.policy>$&lt;range;[====,====]&gt;</bnd.consumer.policy>
-      <bnd.provider.policy>$&lt;range;[====,====]&gt;</bnd.provider.policy>
+      
+      <bnd.consumer.policy>$&lt;range;[==,+)&gt;</bnd.consumer.policy>
+      <bnd.provider.policy>$&lt;range;[==,=+)&gt;</bnd.provider.policy>
    </properties>
    
    <dependencyManagement>
@@ -248,12 +257,12 @@
          </dependency>
          <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>infinispan-ec2-demo</artifactId>
+            <artifactId>infinispan-lucene-directory</artifactId>
             <version>${project.version}</version>
          </dependency>
          <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>infinispan-lucene-directory</artifactId>
+            <artifactId>infinispan-directory-provider</artifactId>
             <version>${project.version}</version>
          </dependency>
          <dependency>
@@ -261,6 +270,13 @@
             <artifactId>infinispan-lucene-directory</artifactId>
             <version>${project.version}</version>
             <type>test-jar</type>
+         </dependency>
+         <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>infinispan-scripting</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
          </dependency>
          <dependency>
             <groupId>${project.groupId}</groupId>
@@ -329,7 +345,12 @@
          </dependency>
          <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>infinispan-cli-server</artifactId>
+            <artifactId>infinispan-cli-interpreter</artifactId>
+            <version>${project.version}</version>
+         </dependency>
+         <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>infinispan-osgi</artifactId>
             <version>${project.version}</version>
          </dependency>
          <dependency>
@@ -380,11 +401,6 @@
          </dependency>
          <dependency>
             <groupId>javax.cache</groupId>
-            <artifactId>cache-api</artifactId>
-            <version>${version.javax.cache}</version>
-         </dependency>
-         <dependency>
-            <groupId>javax.cache</groupId>
             <artifactId>cache-tests</artifactId>
             <version>${version.javax.cache.cache-tests}</version>
          </dependency>
@@ -395,9 +411,9 @@
             <classifier>tests</classifier>
          </dependency>
          <dependency>
-            <groupId>javax.enterprise</groupId>
-            <artifactId>cdi-api</artifactId>
-            <version>${version.cdi}</version>
+            <groupId>javax.cache</groupId>
+            <artifactId>cdi-weld-annotations-test-harness</artifactId>
+            <version>${version.javax.cache.cache-tests}</version>
          </dependency>
          <dependency>
             <groupId>javax.servlet</groupId>
@@ -410,13 +426,18 @@
             <version>${version.javax.servlet}</version>
          </dependency>
          <dependency>
-            <groupId>jgoodies</groupId>
+            <groupId>com.jgoodies</groupId>
             <artifactId>forms</artifactId>
             <version>${version.jgoodies.forms}</version>
          </dependency>
          <dependency>
-            <groupId>log4j</groupId>
-            <artifactId>log4j</artifactId>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-core</artifactId>
+            <version>${version.log4j}</version>
+         </dependency>
+         <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-slf4j-impl</artifactId>
             <version>${version.log4j}</version>
          </dependency>
          <dependency>
@@ -455,6 +476,11 @@
             <version>${version.commons.compress}</version>
          </dependency>
          <dependency>
+            <groupId>org.aspectj</groupId>
+            <artifactId>aspectjweaver</artifactId>
+            <version>${version.aspectj.aspectjweaver}</version>
+         </dependency>
+         <dependency>
             <groupId>commons-codec</groupId>
             <artifactId>commons-codec</artifactId>
             <version>${version.commons.codec}</version>
@@ -486,11 +512,6 @@
          </dependency>
          <dependency>
             <groupId>org.hibernate</groupId>
-            <artifactId>hibernate-annotations</artifactId>
-            <version>${version.hibernate.annotations}</version>
-         </dependency>
-         <dependency>
-            <groupId>org.hibernate</groupId>
             <artifactId>hibernate-core</artifactId>
             <version>${version.hibernate.core}</version>
          </dependency>
@@ -498,11 +519,6 @@
             <groupId>org.hibernate</groupId>
             <artifactId>hibernate-entitymanager</artifactId>
             <version>${version.hibernate.entitymanager}</version>
-         </dependency>
-         <dependency>
-            <groupId>org.hibernate.javax.persistence</groupId>
-            <artifactId>hibernate-jpa-2.0-api</artifactId>
-            <version>${version.hibernate.javax.persistence}</version>
          </dependency>
          <dependency>
             <groupId>org.hibernate.hql</groupId>
@@ -522,10 +538,15 @@
             <scope>import</scope>
          </dependency>
          <dependency>
-            <groupId>org.wildfly</groupId>
+            <groupId>org.wildfly.arquillian</groupId>
             <artifactId>wildfly-arquillian-container-managed</artifactId>
-            <version>${version.wildfly}</version>
+            <version>${version.wildfly.arquillian}</version>
             <scope>test</scope>
+         </dependency>
+         <dependency>
+            <groupId>org.wildfly.core</groupId>
+            <artifactId>wildfly-controller</artifactId>
+            <version>${version.wildfly.core}</version>
          </dependency>
          <dependency>
             <groupId>org.jboss.arquillian.container</groupId>
@@ -534,10 +555,14 @@
             <scope>test</scope>
          </dependency>
          <dependency>
+            <groupId>org.jboss.remotingjmx</groupId>
+            <artifactId>remoting-jmx</artifactId>
+            <version>${version.jboss.remotingjmx}</version>
+         </dependency>
+         <dependency>
             <groupId>org.jboss.sasl</groupId>
             <artifactId>jboss-sasl</artifactId>
             <version>${version.jboss.sasl}</version>
-            <scope>test</scope>
          </dependency>
          <dependency>
             <groupId>org.jboss.shrinkwrap.resolver</groupId>
@@ -547,8 +572,19 @@
             <scope>import</scope>
          </dependency>
          <dependency>
+            <groupId>org.jboss.shrinkwrap.resolver</groupId>
+            <artifactId>shrinkwrap-resolver-impl-maven</artifactId>
+            <version>${version.shrinkwrapResolver}</version>
+            <exclusions>
+               <exclusion>
+                  <groupId>com.google.collections</groupId>
+                  <artifactId>google-collections</artifactId>
+               </exclusion>
+            </exclusions>
+         </dependency>
+         <dependency>
             <groupId>org.jboss.spec</groupId>
-            <artifactId>jboss-javaee-6.0</artifactId>
+            <artifactId>jboss-javaee-7.0</artifactId>
             <version>${version.jboss.spec}</version>
             <type>pom</type>
             <scope>test</scope>
@@ -587,9 +623,37 @@
             <version>${version.resteasy}</version>
          </dependency>
          <dependency>
+            <groupId>org.jboss.resteasy</groupId>
+            <artifactId>resteasy-netty4</artifactId>
+            <version>${version.resteasy}</version>
+         </dependency>
+         <dependency>
             <groupId>org.jboss.solder</groupId>
             <artifactId>solder-impl</artifactId>
             <version>${version.solder}</version>
+         </dependency>
+         <dependency>
+            <groupId>org.jboss</groupId>
+            <artifactId>jboss-transaction-spi</artifactId>
+            <version>${version.jboss.jboss-transaction-spi}</version>
+            <exclusions>
+               <exclusion>
+                  <groupId>org.jboss.logging</groupId>
+                  <artifactId>jboss-logging-spi</artifactId>
+               </exclusion>
+               <exclusion>
+                  <groupId>org.jboss.ironjacamar</groupId>
+                  <artifactId>ironjacamar-spec-api</artifactId>
+               </exclusion>
+               <exclusion>
+                  <groupId>org.jboss.spec.javax.resource</groupId>
+                  <artifactId>jboss-connector-api_1.5_spec</artifactId>
+               </exclusion>
+               <exclusion>
+                  <groupId>org.jboss.spec.javax.transaction</groupId>
+                  <artifactId>jboss-transaction-api_1.2_spec</artifactId>
+               </exclusion>
+            </exclusions>
          </dependency>
          <dependency>
             <groupId>org.jboss.weld</groupId>
@@ -598,20 +662,9 @@
             <scope>test</scope>
          </dependency>
          <dependency>
-            <groupId>org.jboss.weld.se</groupId>
-            <artifactId>weld-se</artifactId>
-            <version>${version.weld}</version>
-            <scope>test</scope>
-         </dependency>
-         <dependency>
-            <groupId>org.milyn</groupId>
-            <artifactId>milyn-smooks-javabean</artifactId>
-            <version>${version.milyn.smooks}</version>
-         </dependency>
-         <dependency>
-            <groupId>org.milyn</groupId>
-            <artifactId>milyn-smooks-csv</artifactId>
-            <version>${version.milyn.smooks}</version>
+            <groupId>org.jboss.xnio</groupId>
+            <artifactId>xnio-nio</artifactId>
+            <version>${version.jboss.xnio}</version>
          </dependency>
          <dependency>
             <groupId>org.mortbay.jetty</groupId>
@@ -642,21 +695,6 @@
             <scope>test</scope>
          </dependency>
          
-         <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-context</artifactId>
-            <version>${version.spring}</version>
-         </dependency>
-         <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-jdbc</artifactId>
-            <version>${version.spring}</version>
-         </dependency>
-         <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-test</artifactId>
-            <version>${version.spring}</version>
-         </dependency>
          <dependency>
             <groupId>org.testng</groupId>
             <artifactId>testng</artifactId>
@@ -690,7 +728,7 @@
             <version>${version.httpclient}</version>
          </dependency>
          <dependency>
-            <groupId>org.jboss.jbossts.jta</groupId>
+            <groupId>org.jboss.narayana.jta</groupId>
             <artifactId>narayana-jta</artifactId>
             <version>${version.jbossjta}</version>
             <exclusions>
@@ -793,10 +831,6 @@
                <exclusion>
                   <artifactId>jboss-connector-api_1.5_spec</artifactId>
                   <groupId>org.jboss.spec.javax.resource</groupId>
-               </exclusion>
-               <exclusion>
-                  <artifactId>jboss-transaction-spi</artifactId>
-                  <groupId>org.jboss.integration</groupId>
                </exclusion>
                <exclusion>
                   <artifactId>jboss-remoting</artifactId>
@@ -934,12 +968,6 @@
          </dependency>
          <dependency>
             <groupId>org.ops4j.pax.url</groupId>
-            <artifactId>pax-url-mvn</artifactId>
-            <version>${version.pax.url}</version>
-            <scope>test</scope>
-         </dependency>
-         <dependency>
-            <groupId>org.ops4j.pax.url</groupId>
             <artifactId>pax-url-wrap</artifactId>
             <version>${version.pax.url}</version>
             <scope>test</scope>
@@ -959,23 +987,60 @@
             <artifactId>lucene-analyzers-common</artifactId>
             <version>${version.lucene}</version>
          </dependency>
+          <dependency>
+              <groupId>com.google.guava</groupId>
+              <artifactId>guava</artifactId>
+              <version>${version.guava}</version>
+          </dependency>
+          <dependency>
+              <groupId>org.kohsuke.metainf-services</groupId>
+              <artifactId>metainf-services</artifactId>
+              <version>${version.metainf-services}</version>
+              <optional>true</optional>
+          </dependency>
+          <dependency>
+              <groupId>org.jboss.byteman</groupId>
+              <artifactId>byteman</artifactId>
+              <version>${version.byteman}</version>
+              <scope>test</scope>
+          </dependency>
+          <dependency>
+              <groupId>org.jboss.byteman</groupId>
+              <artifactId>byteman-bmunit</artifactId>
+              <version>${version.byteman}</version>
+              <scope>test</scope>
+          </dependency>
+          <dependency>
+              <groupId>org.hibernate</groupId>
+              <artifactId>hibernate-testing</artifactId>
+              <version>${version.hibernate.core}</version>
+              <exclusions>
+                  <exclusion>
+                      <groupId>org.jboss.logging</groupId>
+                      <artifactId>jboss-logging-spi</artifactId>
+                  </exclusion>
+                  <exclusion>
+                      <groupId>org.jboss.jbossts</groupId>
+                      <artifactId>jbossjta</artifactId>
+                  </exclusion>
+                  <exclusion>
+                      <groupId>com.experlog</groupId>
+                      <artifactId>xapool</artifactId>
+                  </exclusion>
+              </exclusions>
+          </dependency>
       </dependencies>
    </dependencyManagement>
    <dependencies>
-      <!-- used to serialize non-serializable objects for a dummy marshaller -->
+      
       <dependency>
          <groupId>com.thoughtworks.xstream</groupId>
          <artifactId>xstream</artifactId>
          <scope>test</scope>
       </dependency>
       <dependency>
-         <groupId>commons-logging</groupId>
-         <artifactId>commons-logging</artifactId>
-         <scope>test</scope>
-      </dependency>
-      <dependency>
-         <groupId>log4j</groupId>
-         <artifactId>log4j</artifactId>
+         <groupId>org.apache.logging.log4j</groupId>
+         <artifactId>log4j-core</artifactId>
          <optional>true</optional>
       </dependency>
       <dependency>
@@ -991,7 +1056,12 @@
          <scope>test</scope>
       </dependency>
       <dependency>
-         <groupId>org.jboss.jbossts.jta</groupId>
+         <groupId>org.jboss</groupId>
+         <artifactId>jboss-transaction-spi</artifactId>
+         <scope>test</scope>
+      </dependency>
+      <dependency>
+         <groupId>org.jboss.narayana.jta</groupId>
          <artifactId>narayana-jta</artifactId>
          <scope>test</scope>
       </dependency>
@@ -1000,16 +1070,6 @@
          <artifactId>jboss-logging-processor</artifactId>
          <version>${version.jboss.logging.processor}</version>
          <scope>provided</scope>
-      </dependency>
-      <dependency>
-         <groupId>org.slf4j</groupId>
-         <artifactId>slf4j-api</artifactId>
-         <scope>test</scope>
-      </dependency>
-      <dependency>
-          <groupId>org.slf4j</groupId>
-          <artifactId>slf4j-log4j12</artifactId>
-          <scope>test</scope>
       </dependency>
       <dependency>
          <groupId>org.testng</groupId>
@@ -1079,7 +1139,7 @@
             <plugin>
                <groupId>org.apache.maven.plugins</groupId>
                <artifactId>maven-clean-plugin</artifactId>
-               <version>2.5</version>
+               <version>2.6.1</version>
             </plugin>
             <plugin>
                <groupId>org.apache.maven.plugins</groupId>
@@ -1095,6 +1155,11 @@
                <groupId>org.apache.maven.plugins</groupId>
                <artifactId>maven-deploy-plugin</artifactId>
                <version>2.8.1</version>
+            </plugin>
+            <plugin>
+               <groupId>org.apache.maven.plugins</groupId>
+               <artifactId>maven-antrun-plugin</artifactId>
+               <version>1.8</version>
             </plugin>
             <plugin>
                <groupId>org.apache.felix</groupId>
@@ -1124,19 +1189,24 @@
             <plugin>
                <groupId>org.apache.maven.plugins</groupId>
                <artifactId>maven-javadoc-plugin</artifactId>
-               <version>2.9</version>
+               <version>2.10.3</version>
             </plugin>
             <plugin>
                <groupId>org.apache.maven.plugins</groupId>
                <artifactId>maven-pmd-plugin</artifactId>
-               <!-- See also reporting plugins -->
+               
                <version>2.7.1</version>
                <configuration>
                   <minimumTokens>100</minimumTokens>
-                  <targetJdk>1.7</targetJdk>
+                  <targetJdk>${version.java}</targetJdk>
                   <linkXref>false</linkXref>
                   <sourceEncoding>utf-8</sourceEncoding>
                </configuration>
+            </plugin>
+            <plugin>
+               <groupId>org.apache.maven.plugins</groupId>
+               <artifactId>maven-shade-plugin</artifactId>
+               <version>2.3</version>
             </plugin>
             <plugin>
                <groupId>org.apache.maven.plugins</groupId>
@@ -1169,98 +1239,6 @@
                <groupId>org.codehaus.mojo</groupId>
                <artifactId>ideauidesigner-maven-plugin</artifactId>
                <version>1.0-beta-1</version>
-            </plugin>
-            <!--This plugin's configuration is used to store Eclipse m2e settings only. It has no influence on the Maven build itself.-->
-            <plugin>
-               <groupId>org.eclipse.m2e</groupId>
-               <artifactId>lifecycle-mapping</artifactId>
-               <version>1.0.0</version>
-               <configuration>
-                  <lifecycleMappingMetadata>
-                     <pluginExecutions>
-                        <pluginExecution>
-                           <pluginExecutionFilter>
-                              <groupId>org.apache.maven.plugins</groupId>
-                              <artifactId>maven-dependency-plugin</artifactId>
-                              <versionRange>[2.0,)</versionRange>
-                              <goals>
-                                 <goal>copy</goal>
-                                 <goal>unpack</goal>
-                              </goals>
-                           </pluginExecutionFilter>
-                           <action>
-                              <ignore />
-                           </action>
-                        </pluginExecution>
-                        <pluginExecution>
-                           <pluginExecutionFilter>
-                              <groupId>org.apache.maven.plugins</groupId>
-                              <artifactId>maven-javadoc-plugin</artifactId>
-                              <versionRange>[2.8,)</versionRange>
-                              <goals>
-                                 <goal>javadoc</goal>
-                              </goals>
-                           </pluginExecutionFilter>
-                           <action>
-                              <ignore />
-                           </action>
-                        </pluginExecution>
-                        <pluginExecution>
-                           <pluginExecutionFilter>
-                              <groupId>org.apache.maven.plugins</groupId>
-                              <artifactId>maven-antrun-plugin</artifactId>
-                              <versionRange>[1.7,)</versionRange>
-                              <goals>
-                                 <goal>run</goal>
-                              </goals>
-                           </pluginExecutionFilter>
-                           <action>
-                              <ignore />
-                           </action>
-                        </pluginExecution>
-                        <pluginExecution>
-                           <pluginExecutionFilter>
-                              <groupId>org.codehaus.mojo</groupId>
-                              <artifactId>exec-maven-plugin</artifactId>
-                              <versionRange>[1.2.1,)</versionRange>
-                              <goals>
-                                 <goal>java</goal>
-                              </goals>
-                           </pluginExecutionFilter>
-                           <action>
-                              <ignore />
-                           </action>
-                        </pluginExecution>
-                        <pluginExecution>
-                           <pluginExecutionFilter>
-                              <groupId>org.scala-tools</groupId>
-                              <artifactId>maven-scala-plugin</artifactId>
-                              <versionRange>[2.15.2,)</versionRange>
-                              <goals>
-                                 <goal>testCompile</goal>
-                                 <goal>compile</goal>
-                              </goals>
-                           </pluginExecutionFilter>
-                           <action>
-                              <ignore />
-                           </action>
-                        </pluginExecution>
-                        <pluginExecution>
-                           <pluginExecutionFilter>
-                              <groupId>org.codehaus.mojo</groupId>
-                              <artifactId>ideauidesigner-maven-plugin</artifactId>
-                              <versionRange>[1.0-beta-1,)</versionRange>
-                              <goals>
-                                 <goal>javac2</goal>
-                              </goals>
-                           </pluginExecutionFilter>
-                           <action>
-                              <ignore />
-                           </action>
-                        </pluginExecution>
-                     </pluginExecutions>
-                  </lifecycleMappingMetadata>
-               </configuration>
             </plugin>
             <plugin>
                <groupId>org.jboss.maven.plugins</groupId>
@@ -1316,16 +1294,17 @@
                 <artifactId>maven-scala-plugin</artifactId>
                 <version>${version.maven.scala}</version>
                 <executions>
+                   
                    <execution>
                       <id>compile</id>
-                      <phase>compile</phase>
+                      <phase>none</phase> 
                       <goals>
                          <goal>compile</goal>
                       </goals>
                    </execution>
                    <execution>
                       <id>test-compile</id>
-                      <phase>test-compile</phase>
+                      <phase>none</phase> 
                       <goals>
                          <goal>testCompile</goal>
                       </goals>
@@ -1336,10 +1315,45 @@
                       </configuration>
                    </execution>
                    <execution>
-                      <phase>process-resources</phase>
+                      <phase>none</phase> 
                       <goals>
                          <goal>compile</goal>
                       </goals>
+                   </execution>
+                   <execution>
+                      <id>generate-blueprint</id>
+                      <phase>none</phase>
+                      <goals>
+                         <goal>script</goal>
+                      </goals>
+                      <configuration>
+                         <keepGeneratedScript>true</keepGeneratedScript>
+                         
+                         <script>
+                           
+                             import scala.io.Source
+                             import java.io.{File, PrintWriter}
+                             val serviceDir = new File(project.getBuild().getOutputDirectory() + "/META-INF/services")
+                             if (serviceDir.exists &amp;&amp; serviceDir.listFiles.length != 0) {
+                                val services =
+                                   for (file &lt;- serviceDir.listFiles; line &lt;- Source.fromFile(file).getLines())
+                                   yield {
+                                          val beanName = line.substring(line.lastIndexOf(".") + 1).toLowerCase
+                                          "&lt;bean id=\"" + beanName + "\" class=\"" + line + "\"/&gt;" + "\n" +
+                                          "&lt;service ref=\"" + beanName + "\" interface=\"" + file.getName + "\"/&gt;\n"
+                                         }
+                                val targetBlueprint = new File(project.getBuild().getOutputDirectory() + "/OSGI-INF/blueprint/blueprint.xml")
+                                val input = Source.fromFile(targetBlueprint).getLines.mkString("\n")
+                                val output = new PrintWriter(targetBlueprint)
+                                try {
+                                   output.println(input.replace("${services}", services.toArray.mkString("\n")))
+                                } finally {
+                                   output.close
+                                }
+                             }
+                           
+                         </script>
+                      </configuration>
                    </execution>
                 </executions>
                 <configuration>
@@ -1352,11 +1366,16 @@
                    <compilerPlugins>
                       <compilerPlugin>
                          <groupId>com.typesafe.genjavadoc</groupId>
-                         <artifactId>genjavadoc-plugin_2.10.2</artifactId>
+                         <artifactId>genjavadoc-plugin_${version.scala}</artifactId>
                          <version>${version.maven.genjavadoc}</version>
                       </compilerPlugin>
                    </compilerPlugins>
                 </configuration>
+             </plugin>
+             <plugin>
+                <groupId>org.wildfly.plugins</groupId>
+                <artifactId>wildfly-maven-plugin</artifactId>
+                <version>${version.wildfly.maven.plugin}</version>
              </plugin>
          </plugins>
       </pluginManagement>
@@ -1374,10 +1393,10 @@
                   <configuration>
                      <rules>
                         <requireJavaVersion>
-                           <version>[1.7,)</version>
+                           <version>[${version.java},)</version>
                         </requireJavaVersion>
                         <requireMavenVersion>
-                           <version>[3.0.3,)</version>
+                           <version>[3.1.1,)</version>
                         </requireMavenVersion>
                      </rules>
                   </configuration>
@@ -1412,43 +1431,11 @@
                   <Export-Package>${project.groupId}.*;version=${project.version};-split-package:=error</Export-Package>
                   <_consumer-policy>${bnd.consumer.policy}</_consumer-policy>
                   <_provider-policy>${bnd.provider.policy}</_provider-policy>
+                  <Include-Resource>{maven-resources}</Include-Resource>
                </instructions>
             </configuration>
          </plugin>
-         <!-- Copy the resulting persisted metadata into the build directory for packaging into the jar -->
-         <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-antrun-plugin</artifactId>
-            <version>1.7</version>
-            <executions>
-               <execution>
-                  <id>copy_serialized_metadata</id>
-                  <phase>process-test-resources</phase>
-                  <goals>
-                     <goal>run</goal>
-                  </goals>
-                  <configuration>
-                     <skip>${module.skipComponentMetaDataProcessing}</skip>
-                     <target>
-                        <copy file="${basedir}/src/main/resources/${project.artifactId}-component-metadata.dat" todir="${project.build.outputDirectory}" />
-                     </target>
-                  </configuration>
-               </execution>
-            </executions>
-         </plugin>
-         <!-- by default, compile to JDK 1.7 compatibility (individual modules and/or user can override) -->
-         <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-compiler-plugin</artifactId>
-            <version>3.1</version>
-            <configuration>
-               <source>1.7</source>
-               <target>1.7</target>
-               <encoding>UTF-8</encoding>
-               <compilerArgument>-AtranslationFilesPath=${project.basedir}/target/generated-translation-files</compilerArgument>
-            </configuration>
-         </plugin>
-         <!-- eclipse project file generation -->
+
          <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-eclipse-plugin</artifactId>
@@ -1458,7 +1445,7 @@
                <buildOutputDirectory>${basedir}/eclipse-output</buildOutputDirectory>
             </configuration>
          </plugin>
-         <!-- IntelliJ project file generation -->
+         
          <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-idea-plugin</artifactId>
@@ -1519,7 +1506,7 @@
                <encoding>UTF-8</encoding>
             </configuration>
          </plugin>
-         <!-- ensure parallel test execution -->
+         
          <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>
@@ -1537,21 +1524,26 @@
                   <infinispan.unsafe.allow_jdk8_chm>true</infinispan.unsafe.allow_jdk8_chm>
                   <log4j.configuration>${log4j.configuration}</log4j.configuration>
                   <build.directory>${project.build.directory}</build.directory>
-                 <!-- this is picked up in the log4j xml which prepends it to each module's log file-->
+                 
                  <infinispan.module-name>${project.artifactId}</infinispan.module-name>
                </systemPropertyVariables>
                <trimStackTrace>false</trimStackTrace>
                <properties>
                   <property>
+                     
+                     <name>usedefaultlisteners</name>
+                     <value>false</value>
+                  </property>
+                  <property>
                      <name>listener</name>
                      <value>${testNGListener}</value>
                   </property>
                </properties>
-               <!-- -Dsun.nio.ch.bugLevel needed because of http://bugs.sun.com/view_bug.do?bug_id=6427854 -->
+               
                <argLine>${forkJvmArgs} -Dsun.nio.ch.bugLevel</argLine>
             </configuration>
          </plugin>
-         <!-- Scan module for components and persist these into a data file, for use at runtime -->
+         
          <plugin>
             <groupId>org.codehaus.mojo</groupId>
             <artifactId>exec-maven-plugin</artifactId>
@@ -1577,25 +1569,81 @@
                      </systemProperties>
                   </configuration>
                </execution>
+               <execution>
+                  <id>serialize_test_component_metadata</id>
+                  <phase>process-test-classes</phase>
+                  <goals>
+                     <goal>java</goal>
+                  </goals>
+                  <configuration>
+                     <skip>${module.skipTestComponentMetaDataProcessing}</skip>
+                     <mainClass>org.infinispan.factories.components.ComponentMetadataPersister</mainClass>
+                     <classpathScope>test</classpathScope>
+                     <arguments>
+                        <argument>${project.build.testOutputDirectory}</argument>
+                        <argument>${basedir}/src/test/resources/${project.artifactId}-tests-component-metadata.dat</argument>
+                     </arguments>
+                  </configuration>
+               </execution>
+            </executions>
+         </plugin>
+
+         <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <dependencies>
+               <dependency>
+                  <groupId>org.apache.ant</groupId>
+                  <artifactId>ant</artifactId>
+                  <version>${version.ant}</version>
+               </dependency>
+            </dependencies>
+            <executions>
+               <execution>
+                  <id>copy_serialized_metadata</id>
+                  <phase>process-test-resources</phase>
+                  <goals>
+                     <goal>run</goal>
+                  </goals>
+                  <configuration>
+                     <skip>${module.skipComponentMetaDataProcessing}</skip>
+                     <target>
+                        <copy file="${basedir}/src/main/resources/${project.artifactId}-component-metadata.dat" todir="${project.build.outputDirectory}" />
+                     </target>
+                  </configuration>
+               </execution>
+               <execution>
+                  <id>copy_serialized_test_metadata</id>
+                  <phase>process-test-classes</phase>
+                  <goals>
+                     <goal>run</goal>
+                  </goals>
+                  <configuration>
+                     <skip>${module.skipTestComponentMetaDataProcessing}</skip>
+                     <target>
+                        <copy file="${basedir}/src/test/resources/${project.artifactId}-tests-component-metadata.dat" todir="${project.build.testOutputDirectory}" />
+                     </target>
+                  </configuration>
+               </execution>
             </executions>
          </plugin>
       </plugins>
    </build>
    <reporting>
       <plugins>
-         <!-- PMD report -->
+         
          <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-pmd-plugin</artifactId>
-            <!-- Needs to be re-defined and configured in pluginManagement section -->
+            
             <version>2.7.1</version>
          </plugin>
          <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-report-plugin</artifactId>
-            <version>2.12.2</version>
+            <version>2.18.1</version>
          </plugin>
-         <!-- Findbugs report -->
+         
          <plugin>
             <groupId>org.codehaus.mojo</groupId>
             <artifactId>findbugs-maven-plugin</artifactId>
@@ -1614,10 +1662,8 @@
          <properties>
             <skipTests>true</skipTests>
          </properties>
-
          <build>
             <plugins>
-               <!-- generate target/runtime-classpath.txt, to be included in bundle -->
                <plugin>
                   <groupId>org.apache.maven.plugins</groupId>
                   <artifactId>maven-dependency-plugin</artifactId>
@@ -1631,8 +1677,24 @@
                         <configuration>
                            <includeScope>runtime</includeScope>
                            <excludeScope>test</excludeScope>
+                           <excludeArtifactIds>infinispan-embedded,infinispan-embedded-query,infinispan-remote</excludeArtifactIds>
+                           <excludeGroupIds>org.infinispan,org.jgroups,org.jboss.marshalling,org.jboss.logging,net.jcip</excludeGroupIds>
                            <prefix>$ISPN_HOME/lib</prefix>
                            <outputFile>${project.build.directory}/runtime-classpath.txt</outputFile>
+                           <silent>true</silent>
+                        </configuration>
+                     </execution>
+                     <execution>
+                        <id>copy-dependencies</id>
+                        <phase>package</phase>
+                        <goals>
+                           <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                           <includeScope>runtime</includeScope>
+                           <excludeScope>test</excludeScope>
+                           <excludeGroupIds>org.infinispan,org.jgroups,org.jboss.marshalling,org.jboss.logging,net.jcip</excludeGroupIds>
+                           <silent>true</silent>
                         </configuration>
                      </execution>
                   </executions>
@@ -1648,7 +1710,6 @@
          </activation>
          <build>
             <plugins>
-               <!-- Make sure we generate src jars too -->
                <plugin>
                   <groupId>org.apache.maven.plugins</groupId>
                   <artifactId>maven-source-plugin</artifactId>
@@ -1667,7 +1728,7 @@
             </plugins>
          </build>
          <properties>
-            <!-- By default create OSGI bundles -->
+            
             <packaging>bundle</packaging>
          </properties>
       </profile>
@@ -1685,6 +1746,13 @@
          <id>test-functional</id>
          <properties>
             <defaultTestGroup>functional</defaultTestGroup>
+            <infinispan.test.jgroups.protocol>tcp</infinispan.test.jgroups.protocol>
+         </properties>
+      </profile>
+      <profile>
+         <id>smoke</id>
+         <properties>
+            <defaultTestGroup>smoke</defaultTestGroup>
             <infinispan.test.jgroups.protocol>tcp</infinispan.test.jgroups.protocol>
          </properties>
       </profile>
@@ -1710,8 +1778,8 @@
          <id>test-unstable</id>
          <properties>
             <defaultTestGroup>unstable</defaultTestGroup>
-             <!-- empty since we are not going to exclude any group -->
-            <defaultExcludedTestGroup></defaultExcludedTestGroup>
+             
+            <defaultExcludedTestGroup />
             <infinispan.test.jgroups.protocol>tcp</infinispan.test.jgroups.protocol>
          </properties>
        </profile>
@@ -1783,14 +1851,13 @@
          </activation>
          <build>
             <plugins>
-               <!-- Redefine surefire plugin to avoid external log4j settings
-               not being discovered when passed as command line arguments -->
+               
                <plugin>
                   <groupId>org.apache.maven.plugins</groupId>
                   <artifactId>maven-surefire-plugin</artifactId>
                   <configuration>
                      <systemPropertyVariables>
-                        <log4j.configuration>log4j-trace.xml</log4j.configuration>
+                        <log4j.configurationFile>log4j2-trace.xml</log4j.configurationFile>
                      </systemPropertyVariables>
                   </configuration>
                </plugin>
@@ -1810,7 +1877,7 @@
                   <groupId>org.apache.maven.plugins</groupId>
                   <artifactId>maven-dependency-plugin</artifactId>
                   <executions>
-                     <!-- Copy the ant tasks jar. Needed for ts.jacoco.report-ant . -->
+                     
                      <execution>
                         <id>jacoco-dependency-ant</id>
                         <goals>
@@ -1848,7 +1915,7 @@
                   </executions>
                </plugin>
 
-               <!-- Starting jacoco agent for recording code coverage. -->
+               
                <plugin>
                   <groupId>org.jacoco</groupId>
                   <artifactId>jacoco-maven-plugin</artifactId>
@@ -1864,7 +1931,7 @@
                   </configuration>
                </plugin>
 
-               <!-- Overriding surefire configuration, for attaching jacoco agent to command line. -->
+               
                <plugin>
                   <groupId>org.apache.maven.plugins</groupId>
                   <artifactId>maven-surefire-plugin</artifactId>
@@ -1900,7 +1967,6 @@
                <plugin>
                   <groupId>org.apache.maven.plugins</groupId>
                   <artifactId>maven-antrun-plugin</artifactId>
-                  <version>1.7</version>
                   <executions>
                      <execution>
                         <phase>install</phase>
@@ -1909,7 +1975,7 @@
                         </goals>
                         <configuration combine.self="override">
                            <target>
-                              <!-- Execute an ant task within maven -->
+                              
                               <taskdef classname="org.jacoco.ant.ReportTask" name="report">
                                  <classpath path="${basedir}/target/jacoco-jars/org.jacoco.ant.jar" />
                                  <classpath path="target/jacoco-jars/org.jacoco.core.jar" />
@@ -1925,12 +1991,12 @@
 
                               <echo message="Generating JaCoCo Reports" />
                               <report>
-                                 <!-- Specifying the execution data files locations. -->
+                                 
                                  <executiondata>
                                     <fileset dir="${dir.ispn}" includes="**/target/jacoco.exec" />
                                  </executiondata>
 
-                                 <!-- Defining the report structure with class and source files. -->
+                                 
                                  <structure name="${reportTitle}">
                                     <classfiles>
                                        <fileset dir="${dir.ispn}">
@@ -1946,7 +2012,7 @@
 
                                  </structure>
 
-                                 <!-- Only HTML report is generated with specified path. -->
+                                 
                                  <html destdir="${dir.report}" />
                               </report>
                            </target>

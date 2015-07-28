@@ -15,13 +15,15 @@ import org.infinispan.commands.ReplicableCommand;
 import org.infinispan.commands.control.LockControlCommand;
 import org.infinispan.commands.read.DistributedExecuteCommand;
 import org.infinispan.commands.read.EntrySetCommand;
+import org.infinispan.commands.read.GetCacheEntryCommand;
 import org.infinispan.commands.read.GetKeyValueCommand;
+import org.infinispan.commands.read.GetAllCommand;
 import org.infinispan.commands.read.KeySetCommand;
 import org.infinispan.commands.read.MapCombineCommand;
 import org.infinispan.commands.read.ReduceCommand;
 import org.infinispan.commands.read.SizeCommand;
-import org.infinispan.commands.read.ValuesCommand;
 import org.infinispan.commands.remote.ClusteredGetCommand;
+import org.infinispan.commands.remote.ClusteredGetAllCommand;
 import org.infinispan.commands.remote.MultipleRpcCommand;
 import org.infinispan.commands.remote.SingleRpcCommand;
 import org.infinispan.commands.remote.recovery.CompleteTransactionCommand;
@@ -34,6 +36,7 @@ import org.infinispan.commands.tx.RollbackCommand;
 import org.infinispan.commands.tx.VersionedCommitCommand;
 import org.infinispan.commands.tx.VersionedPrepareCommand;
 import org.infinispan.commands.write.*;
+import org.infinispan.commons.CacheException;
 import org.infinispan.context.Flag;
 import org.infinispan.distexec.mapreduce.Mapper;
 import org.infinispan.distexec.mapreduce.Reducer;
@@ -45,6 +48,8 @@ import org.infinispan.remoting.transport.Address;
 import org.infinispan.statetransfer.StateChunk;
 import org.infinispan.statetransfer.StateRequestCommand;
 import org.infinispan.statetransfer.StateResponseCommand;
+import org.infinispan.stream.impl.StreamRequestCommand;
+import org.infinispan.stream.impl.StreamResponseCommand;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.transaction.xa.GlobalTransaction;
 import org.infinispan.util.concurrent.ReclosableLatch;
@@ -57,6 +62,7 @@ import org.infinispan.xsite.statetransfer.XSiteStatePushCommand;
 import org.infinispan.xsite.statetransfer.XSiteStateTransferControlCommand;
 
 import javax.transaction.xa.Xid;
+
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -166,18 +172,18 @@ public class ControlledCommandFactory implements CommandsFactory {
    }
 
    @Override
-   public GetKeyValueCommand buildGetKeyValueCommand(Object key, Set<Flag> flags, boolean returnEntry) {
-      return actual.buildGetKeyValueCommand(key, flags, returnEntry);
+   public GetKeyValueCommand buildGetKeyValueCommand(Object key, Set<Flag> flags) {
+      return actual.buildGetKeyValueCommand(key, flags);
+   }
+
+   @Override
+   public GetAllCommand buildGetAllCommand(Collection<?> keys, Set<Flag> flags, boolean returnEntries) {
+      return actual.buildGetAllCommand(keys, flags, returnEntries);
    }
 
    @Override
    public KeySetCommand buildKeySetCommand(Set<Flag> flags) {
       return actual.buildKeySetCommand(flags);
-   }
-
-   @Override
-   public ValuesCommand buildValuesCommand(Set<Flag> flags) {
-      return actual.buildValuesCommand(flags);
    }
 
    @Override
@@ -241,7 +247,12 @@ public class ControlledCommandFactory implements CommandsFactory {
    }
 
    @Override
-   public LockControlCommand buildLockControlCommand(Collection<Object> keys, Set<Flag> flags, GlobalTransaction gtx) {
+   public ClusteredGetAllCommand buildClusteredGetAllCommand(List<?> keys, Set<Flag> flags, GlobalTransaction gtx) {
+      return actual.buildClusteredGetAllCommand(keys, flags, gtx);
+   }
+
+   @Override
+   public LockControlCommand buildLockControlCommand(Collection<?> keys, Set<Flag> flags, GlobalTransaction gtx) {
       return actual.buildLockControlCommand(keys, flags, gtx);
    }
 
@@ -251,7 +262,7 @@ public class ControlledCommandFactory implements CommandsFactory {
    }
 
    @Override
-   public LockControlCommand buildLockControlCommand(Collection keys, Set<Flag> flags) {
+   public LockControlCommand buildLockControlCommand(Collection<?> keys, Set<Flag> flags) {
       return actual.buildLockControlCommand(keys, flags);
    }
 
@@ -261,8 +272,8 @@ public class ControlledCommandFactory implements CommandsFactory {
    }
 
    @Override
-   public StateResponseCommand buildStateResponseCommand(Address sender, int viewId, Collection<StateChunk> stateChunks) {
-      return actual.buildStateResponseCommand(sender, viewId, stateChunks);
+   public StateResponseCommand buildStateResponseCommand(Address sender, int topologyId, Collection<StateChunk> stateChunks) {
+      return actual.buildStateResponseCommand(sender, topologyId, stateChunks);
    }
 
    @Override
@@ -326,8 +337,8 @@ public class ControlledCommandFactory implements CommandsFactory {
    }
 
    @Override
-   public CreateCacheCommand buildCreateCacheCommand(String tmpCacheName, String defaultTmpCacheConfigurationName, boolean start, int size) {
-      return actual.buildCreateCacheCommand(tmpCacheName, defaultTmpCacheConfigurationName, start, size);
+   public CreateCacheCommand buildCreateCacheCommand(String tmpCacheName, String defaultTmpCacheConfigurationName, int size) {
+      return actual.buildCreateCacheCommand(tmpCacheName, defaultTmpCacheConfigurationName, size);
    }
 
    @Override
@@ -343,8 +354,8 @@ public class ControlledCommandFactory implements CommandsFactory {
    }
 
    @Override
-   public XSiteStatePushCommand buildXSiteStatePushCommand(XSiteState[] chunk) {
-      return actual.buildXSiteStatePushCommand(chunk);
+   public XSiteStatePushCommand buildXSiteStatePushCommand(XSiteState[] chunk, long timeoutMillis) {
+      return actual.buildXSiteStatePushCommand(chunk, timeoutMillis);
    }
 
    @Override
@@ -353,18 +364,39 @@ public class ControlledCommandFactory implements CommandsFactory {
    }
 
    @Override
-   public <K, V, C> EntryRequestCommand<K, V, C> buildEntryRequestCommand(UUID identifier, Set<Integer> segments, KeyValueFilter<? super K, ? super V> filter, Converter<? super K, ? super V, C> converter) {
-      return actual.buildEntryRequestCommand(identifier, segments, filter, converter);
+   public <K, V, C> EntryRequestCommand<K, V, C> buildEntryRequestCommand(UUID identifier, Set<Integer> segments, Set<K> keysToFilter, KeyValueFilter<? super K, ? super V> filter, Converter<? super K, ? super V, C> converter, Set<Flag> flags) {
+      return actual.buildEntryRequestCommand(identifier, segments, keysToFilter, filter, converter, flags);
    }
 
    @Override
-   public <K, C> EntryResponseCommand buildEntryResponseCommand(UUID identifier, Set<Integer> completedSegments,
-                                                                Set<Integer> inDoubtSegments, Collection<CacheEntry<K, C>> values) {
-      return actual.buildEntryResponseCommand(identifier, completedSegments, inDoubtSegments, values);
+   public <K, C> EntryResponseCommand<K, C> buildEntryResponseCommand(UUID identifier, Set<Integer> completedSegments,
+                                                                Set<Integer> inDoubtSegments, Collection<CacheEntry<K, C>> values,
+                                                                CacheException e) {
+      return actual.buildEntryResponseCommand(identifier, completedSegments, inDoubtSegments, values, e);
    }
 
    @Override
    public GetKeysInGroupCommand buildGetKeysInGroupCommand(Set<Flag> flags, String groupName) {
       return actual.buildGetKeysInGroupCommand(flags, groupName);
    }
+
+   @Override
+   public <K> StreamRequestCommand<K> buildStreamRequestCommand(UUID id, boolean parallelStream,
+           StreamRequestCommand.Type type, Set<Integer> segments, Set<K> keys, Set<K> excludedKeys,
+           boolean includeLoader, Object terminalOperation) {
+      return actual.buildStreamRequestCommand(id, parallelStream, type, segments, keys, excludedKeys, includeLoader,
+              terminalOperation);
+   }
+
+   @Override
+   public <R> StreamResponseCommand<R> buildStreamResponseCommand(UUID identifier, boolean complete,
+                                                                  Set<Integer> lostSegments, R response) {
+      return actual.buildStreamResponseCommand(identifier, complete, lostSegments, response);
+   }
+
+   @Override
+   public GetCacheEntryCommand buildGetCacheEntryCommand(Object key, Set<Flag> explicitFlags) {
+      return actual.buildGetCacheEntryCommand(key, explicitFlags);
+   }
+
 }

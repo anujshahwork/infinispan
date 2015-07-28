@@ -1,6 +1,5 @@
 package org.infinispan.persistence.remote;
 
-import org.infinispan.client.hotrod.TestHelper;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.commons.api.BasicCacheContainer;
 import org.infinispan.configuration.cache.PersistenceConfigurationBuilder;
@@ -10,7 +9,6 @@ import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
-import org.testng.annotations.AfterMethod;
 import org.testng.annotations.Test;
 
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
@@ -29,7 +27,7 @@ public class RemoteStoreFunctionalTest extends BaseStoreFunctionalTest {
    @Override
    protected PersistenceConfigurationBuilder createCacheStoreConfig(PersistenceConfigurationBuilder persistence, boolean preload) {
       localCacheManager = TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration());
-      hrServer = TestHelper.startHotRodServer(localCacheManager);
+      hrServer = HotRodClientTestingUtil.startHotRodServer(localCacheManager);
       persistence
          .addStore(RemoteStoreConfigurationBuilder.class)
             .remoteCacheName(BasicCacheContainer.DEFAULT_CACHE_NAME)
@@ -40,8 +38,9 @@ public class RemoteStoreFunctionalTest extends BaseStoreFunctionalTest {
       return persistence;
    }
 
-   @AfterMethod(alwaysRun = true) // run even if the test failed
-   public void tearDown() {
+   @Override
+   protected void teardown() {
+      super.teardown();
       HotRodClientTestingUtil.killServers(hrServer);
       TestingUtil.killCacheManagers(localCacheManager);
    }

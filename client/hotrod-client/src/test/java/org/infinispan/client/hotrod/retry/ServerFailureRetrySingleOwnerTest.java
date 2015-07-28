@@ -1,7 +1,7 @@
 package org.infinispan.client.hotrod.retry;
 
-import org.infinispan.client.hotrod.TestHelper;
 import org.infinispan.client.hotrod.VersionedValue;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.notifications.Listener;
@@ -22,8 +22,12 @@ import static org.testng.AssertJUnit.*;
  * change locally but fails to send it to other nodes. The failover mechanism
  * in the Hot Rod client will determine a different server and retry.
  */
-@Test(groups = "functional", testName = "client.hotrod.retry.ServerFailureRetryTest")
+@Test(groups = "functional", testName = "client.hotrod.retry.ServerFailureRetrySingleOwnerTest")
 public class ServerFailureRetrySingleOwnerTest extends AbstractRetryTest {
+
+   public ServerFailureRetrySingleOwnerTest() {
+      cleanup = CleanupPhase.AFTER_TEST;
+   }
 
    @Override
    protected ConfigurationBuilder getCacheConfig() {
@@ -31,114 +35,123 @@ public class ServerFailureRetrySingleOwnerTest extends AbstractRetryTest {
             getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false));
       builder.clustering().hash().numOwners(1).numSegments(1)
             .consistentHashFactory(new ControlledConsistentHashFactory(0))
-            .transaction().transactionMode(TransactionMode.TRANSACTIONAL);
+            .transaction().transactionMode(TransactionMode.TRANSACTIONAL).useSynchronization(true);
       return builder;
    }
 
    public void testRetryReplaceWithVersion() {
-      ErrorInducingListener listener = new ErrorInducingListener();
-      byte[] key = TestHelper.getKeyForServer(hotRodServer1);
-      try {
-         assertNull(remoteCache.putIfAbsent(key, 1));
-         VersionedValue versioned = remoteCache.getVersioned(key);
-         assertEquals(1, versioned.getValue());
-         hotRodServer1.getCacheManager().getCache().addListener(listener);
-         assertFalse(listener.errorInduced);
-         assertEquals(true, remoteCache.replaceWithVersion(key, 2, versioned.getVersion()));
-         assertTrue(listener.errorInduced);
-         assertEquals(2, remoteCache.get(key));
-      } finally {
-         hotRodServer1.getCacheManager().removeListener(listener);
-      }
+      final ErrorInducingListener listener = new ErrorInducingListener();
+      final byte[] key = HotRodClientTestingUtil.getKeyForServer(hotRodServer1);
+      assertNull(remoteCache.putIfAbsent(key, 1));
+      final VersionedValue versioned = remoteCache.getVersioned(key);
+      assertEquals(1, versioned.getValue());
+      withListener(listener, new Runnable() {
+         @Override
+         public void run() {
+            assertFalse(listener.errorInduced);
+            assertEquals(true, remoteCache.replaceWithVersion(key, 2, versioned.getVersion()));
+            assertTrue(listener.errorInduced);
+            assertEquals(2, remoteCache.get(key));
+         }
+      });
    }
 
    public void testRetryRemoveWithVersion() {
-      ErrorInducingListener listener = new ErrorInducingListener();
-      byte[] key = TestHelper.getKeyForServer(hotRodServer1);
-      try {
-         assertNull(remoteCache.putIfAbsent(key, 1));
-         VersionedValue versioned = remoteCache.getVersioned(key);
-         assertEquals(1, versioned.getValue());
-         hotRodServer1.getCacheManager().getCache().addListener(listener);
-         assertFalse(listener.errorInduced);
-         assertEquals(true, remoteCache.removeWithVersion(key, versioned.getVersion()));
-         assertTrue(listener.errorInduced);
-         assertNull(remoteCache.get(key));
-      } finally {
-         hotRodServer1.getCacheManager().removeListener(listener);
-      }
+      final ErrorInducingListener listener = new ErrorInducingListener();
+      final byte[] key = HotRodClientTestingUtil.getKeyForServer(hotRodServer1);
+      assertNull(remoteCache.putIfAbsent(key, 1));
+      final VersionedValue versioned = remoteCache.getVersioned(key);
+      assertEquals(1, versioned.getValue());
+      withListener(listener, new Runnable() {
+         @Override
+         public void run() {
+            assertFalse(listener.errorInduced);
+            assertEquals(true, remoteCache.removeWithVersion(key, versioned.getVersion()));
+            assertTrue(listener.errorInduced);
+            assertNull(remoteCache.get(key));
+         }
+      });
    }
 
    public void testRetryRemove() {
-      ErrorInducingListener listener = new ErrorInducingListener();
-      byte[] key = TestHelper.getKeyForServer(hotRodServer1);
-      try {
-         assertNull(remoteCache.putIfAbsent(key, 1));
-         hotRodServer1.getCacheManager().getCache().addListener(listener);
-         assertFalse(listener.errorInduced);
-         assertEquals(1, remoteCache.remove(key));
-         assertTrue(listener.errorInduced);
-         assertNull(remoteCache.get(key));
-      } finally {
-         hotRodServer1.getCacheManager().removeListener(listener);
-      }
+      final ErrorInducingListener listener = new ErrorInducingListener();
+      final byte[] key = HotRodClientTestingUtil.getKeyForServer(hotRodServer1);
+      assertNull(remoteCache.putIfAbsent(key, 1));
+      withListener(listener, new Runnable() {
+         @Override
+         public void run() {
+            assertFalse(listener.errorInduced);
+            assertEquals(1, remoteCache.remove(key));
+            assertTrue(listener.errorInduced);
+            assertNull(remoteCache.get(key));
+         }
+      });
    }
 
    public void testRetryReplace() {
-      ErrorInducingListener listener = new ErrorInducingListener();
-      byte[] key = TestHelper.getKeyForServer(hotRodServer1);
-      try {
-         assertNull(remoteCache.putIfAbsent(key, 1));
-         hotRodServer1.getCacheManager().getCache().addListener(listener);
-         assertFalse(listener.errorInduced);
-         assertEquals(1, remoteCache.replace(key, 2));
-         assertTrue(listener.errorInduced);
-         assertEquals(2, remoteCache.get(key));
-      } finally {
-         hotRodServer1.getCacheManager().removeListener(listener);
-      }
+      final ErrorInducingListener listener = new ErrorInducingListener();
+      final byte[] key = HotRodClientTestingUtil.getKeyForServer(hotRodServer1);
+      assertNull(remoteCache.putIfAbsent(key, 1));
+      withListener(listener, new Runnable() {
+         @Override
+         public void run() {
+            assertFalse(listener.errorInduced);
+            assertEquals(1, remoteCache.replace(key, 2));
+            assertTrue(listener.errorInduced);
+            assertEquals(2, remoteCache.get(key));
+         }
+      });
    }
 
    public void testRetryPutIfAbsent() {
-      ErrorInducingListener listener = new ErrorInducingListener();
-      byte[] key = TestHelper.getKeyForServer(hotRodServer1);
-      hotRodServer1.getCacheManager().getCache().addListener(listener);
-      try {
-         assertFalse(listener.errorInduced);
-         assertNull(remoteCache.putIfAbsent(key, 1));
-         assertTrue(listener.errorInduced);
-         assertEquals(1, remoteCache.get(key));
-      } finally {
-         hotRodServer1.getCacheManager().removeListener(listener);
-      }
+      final ErrorInducingListener listener = new ErrorInducingListener();
+      final byte[] key = HotRodClientTestingUtil.getKeyForServer(hotRodServer1);
+      withListener(listener, new Runnable() {
+         @Override
+         public void run() {
+            assertFalse(listener.errorInduced);
+            assertNull(remoteCache.putIfAbsent(key, 1));
+            assertTrue(listener.errorInduced);
+            assertEquals(1, remoteCache.get(key));
+         }
+      });
    }
 
    public void testRetryPutOnNonEmpty() {
-      ErrorInducingListener listener = new ErrorInducingListener();
-      byte[] key = TestHelper.getKeyForServer(hotRodServer1);
-      try {
-         assertNull(remoteCache.put(key, 1));
-         hotRodServer1.getCacheManager().getCache().addListener(listener);
-         assertFalse(listener.errorInduced);
-         assertEquals(1, remoteCache.put(key, 2));
-         assertTrue(listener.errorInduced);
-         assertEquals(2, remoteCache.get(key));
-      } finally {
-         hotRodServer1.getCacheManager().removeListener(listener);
-      }
+      final ErrorInducingListener listener = new ErrorInducingListener();
+      final byte[] key = HotRodClientTestingUtil.getKeyForServer(hotRodServer1);
+      assertNull(remoteCache.put(key, 1));
+      withListener(listener, new Runnable() {
+         @Override
+         public void run() {
+            assertFalse(listener.errorInduced);
+            assertEquals(1, remoteCache.put(key, 2));
+            assertTrue(listener.errorInduced);
+            assertEquals(2, remoteCache.get(key));
+         }
+      });
    }
 
    public void testRetryPutOnEmpty() {
-      ErrorInducingListener listener = new ErrorInducingListener();
-      byte[] key = TestHelper.getKeyForServer(hotRodServer1);
+      final ErrorInducingListener listener = new ErrorInducingListener();
+      final byte[] key = HotRodClientTestingUtil.getKeyForServer(hotRodServer1);
+      withListener(listener, new Runnable() {
+         @Override
+         public void run() {
+            assertFalse(listener.errorInduced);
+            assertNull(remoteCache.put(key, 1));
+            assertTrue(listener.errorInduced);
+            assertEquals(1, remoteCache.get(key));
+         }
+      });
+   }
+
+   private void withListener(Object listener, Runnable r) {
       hotRodServer1.getCacheManager().getCache().addListener(listener);
       try {
-         assertFalse(listener.errorInduced);
-         assertNull(remoteCache.put(key, 1));
-         assertTrue(listener.errorInduced);
-         assertEquals(1, remoteCache.get(key));
+         r.run();
       } finally {
-         hotRodServer1.getCacheManager().removeListener(listener);
+         hotRodServer1.getCacheManager().getCache().removeListener(listener);
       }
    }
 

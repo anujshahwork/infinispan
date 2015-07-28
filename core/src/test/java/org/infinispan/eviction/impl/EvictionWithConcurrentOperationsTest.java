@@ -2,6 +2,7 @@ package org.infinispan.eviction.impl;
 
 import org.infinispan.Cache;
 import org.infinispan.commands.VisitableCommand;
+import org.infinispan.commands.read.GetCacheEntryCommand;
 import org.infinispan.commands.read.GetKeyValueCommand;
 import org.infinispan.commands.write.PutKeyValueCommand;
 import org.infinispan.commons.util.Util;
@@ -141,12 +142,15 @@ public class EvictionWithConcurrentOperationsTest extends SingleCacheManagerTest
       Future<Object> put = cache.putAsync(key2, "v2");
       latch.waitToBlock(30, TimeUnit.SECONDS);
 
-      //the eviction was trigger and the key is no longer in the map
-      assertEquals("Wrong value for key " + key1 + " in get operation.", "v1", cache.get(key1));
-
       //let the eviction continue and wait for put
       latch.disable();
       put.get();
+
+      //the eviction was trigger and the key is no longer in the map
+      // This should be after the async put is known to finish.  It is undefined which would
+      // win in the case of an entry being activated while it is also being passivated
+      // This way it is clear which should be there
+      assertEquals("Wrong value for key " + key1 + " in get operation.", "v1", cache.get(key1));
 
       assertInMemory(key1, "v1");
       assertNotInMemory(key2, "v2");
@@ -536,6 +540,16 @@ public class EvictionWithConcurrentOperationsTest extends SingleCacheManagerTest
       }
 
       @Override
+      public boolean getStatisticsEnabled() {
+         return delegate.getStatisticsEnabled();
+      }
+
+      @Override
+      public void setStatisticsEnabled(boolean enabled) {
+         delegate.setStatisticsEnabled(enabled);
+      }
+
+      @Override
       public void resetStatistics() {
          delegate.resetStatistics();
       }
@@ -560,6 +574,11 @@ public class EvictionWithConcurrentOperationsTest extends SingleCacheManagerTest
 
       @Override
       public Object visitGetKeyValueCommand(InvocationContext ctx, GetKeyValueCommand command) throws Throwable {
+         return handle(ctx, command, beforeGet, afterGet);
+      }
+
+      @Override
+      public Object visitGetCacheEntryCommand(InvocationContext ctx, GetCacheEntryCommand command) throws Throwable {
          return handle(ctx, command, beforeGet, afterGet);
       }
 

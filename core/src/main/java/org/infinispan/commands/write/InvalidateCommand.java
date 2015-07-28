@@ -1,10 +1,12 @@
 package org.infinispan.commands.write;
 
+import org.infinispan.commands.CommandInvocationId;
 import org.infinispan.commands.Visitor;
 import org.infinispan.commons.util.Util;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.lifecycle.ComponentStatus;
+import org.infinispan.metadata.Metadata;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
@@ -31,16 +33,16 @@ public class InvalidateCommand extends RemoveCommand {
       this.valueMatcher = ValueMatcher.MATCH_ALWAYS;
    }
 
-   public InvalidateCommand(CacheNotifier notifier, Set<Flag> flags, Object... keys) {
+   public InvalidateCommand(CacheNotifier notifier, Set<Flag> flags, CommandInvocationId commandInvocationId, Object... keys) {
       //valueEquivalence can be null because this command never compares values.
-      super(null, null, notifier, flags, null);
+      super(null, null, notifier, flags, null, commandInvocationId);
       this.keys = keys;
       this.notifier = notifier;
    }
 
-   public InvalidateCommand(CacheNotifier notifier, Set<Flag> flags, Collection<Object> keys) {
+   public InvalidateCommand(CacheNotifier notifier, Set<Flag> flags, Collection<Object> keys, CommandInvocationId commandInvocationId) {
       //valueEquivalence can be null because this command never compares values.
-      super(null, null, notifier, flags, null);
+      super(null, null, notifier, flags, null, commandInvocationId);
       if (keys == null || keys.isEmpty())
          this.keys = Util.EMPTY_OBJECT_ARRAY;
       else
@@ -71,8 +73,9 @@ public class InvalidateCommand extends RemoveCommand {
    }
 
    @Override
-   protected void notify(InvocationContext ctx, Object value, boolean isPre) {
-      notifier.notifyCacheEntryInvalidated(key, value, isPre, ctx, this);
+   public void notify(InvocationContext ctx, Object removedValue, Metadata removedMetadata,
+         boolean isPre) {
+      notifier.notifyCacheEntryInvalidated(key, removedValue, isPre, ctx, this);
    }
 
    @Override
@@ -90,13 +93,14 @@ public class InvalidateCommand extends RemoveCommand {
    @Override
    public Object[] getParameters() {
       if (keys == null || keys.length == 0) {
-         return new Object[]{0};
+         return new Object[]{commandInvocationId, 0};
       } else if (keys.length == 1) {
-         return new Object[]{1, keys[0]};
+         return new Object[]{commandInvocationId, 1, keys[0]};
       } else {
-         Object[] retval = new Object[keys.length + 1];
-         retval[0] = keys.length;
-         System.arraycopy(keys, 0, retval, 1, keys.length);
+         Object[] retval = new Object[keys.length + 2];
+         retval[0] = commandInvocationId;
+         retval[1] = keys.length;
+         System.arraycopy(keys, 0, retval, 2, keys.length);
          return retval;
       }
    }
@@ -104,12 +108,14 @@ public class InvalidateCommand extends RemoveCommand {
    @Override
    public void setParameters(int commandId, Object[] args) {
       if (commandId != COMMAND_ID) throw new IllegalStateException("Invalid method id");
-      int size = (Integer) args[0];
+      int i = 0;
+      commandInvocationId = (CommandInvocationId) args[i++];
+      int size = (Integer) args[i++];
       keys = new Object[size];
       if (size == 1) {
-         keys[0] = args[1];
+         keys[0] = args[i];
       } else if (size > 0) {
-         System.arraycopy(args, 1, keys, 0, size);
+         System.arraycopy(args, i, keys, 0, size);
       }
    }
 

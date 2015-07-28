@@ -48,7 +48,7 @@ public interface ObjectFilter {
    interface FilterResult {
 
       /**
-       * Returns the object being matched.
+       * Returns the matched object. This is non-null unless projections are present.
        */
       Object getInstance();
 

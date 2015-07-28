@@ -1,9 +1,11 @@
 package org.infinispan.commands.write;
 
+import org.infinispan.commands.CommandInvocationId;
 import org.infinispan.commands.LocalCommand;
 import org.infinispan.commands.Visitor;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
+import org.infinispan.metadata.Metadata;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
@@ -18,8 +20,8 @@ public class EvictCommand extends RemoveCommand implements LocalCommand {
 
    private static final Log log = LogFactory.getLog(EvictCommand.class);
 
-   public EvictCommand(Object key, CacheNotifier notifier, Set<Flag> flags) {
-      super(key, null, notifier, flags, null);
+   public EvictCommand(Object key, CacheNotifier notifier, Set<Flag> flags, CommandInvocationId commandInvocationId) {
+      super(key, null, notifier, flags, null, commandInvocationId);
    }
 
    @Override
@@ -37,7 +39,11 @@ public class EvictCommand extends RemoveCommand implements LocalCommand {
    }
 
    @Override
-   public void notify(InvocationContext ctx, Object value, boolean isPre) {
+   public void notify(InvocationContext ctx, Object value, Metadata previousMetadata, 
+         boolean isPre) {
+      // Eviction has no notion of pre/post event since 4.2.0.ALPHA4.
+      // EvictionManagerImpl.onEntryEviction() triggers both pre and post events
+      // with non-null values, so we should do the same here as an ugly workaround.
       if (!isPre) {
          if (log.isTraceEnabled())
             log.tracef("Notify eviction listeners for key=%", key);

@@ -21,14 +21,6 @@
  */
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ScheduledExecutorService;
-
-import javax.management.MBeanServer;
-
 import org.infinispan.commons.util.ServiceFinder;
 import org.infinispan.configuration.global.GlobalAuthorizationConfigurationBuilder;
 import org.infinispan.configuration.global.GlobalConfiguration;
@@ -39,13 +31,15 @@ import org.infinispan.configuration.global.ShutdownHookBehavior;
 import org.infinispan.configuration.global.TransportConfigurationBuilder;
 import org.infinispan.marshall.core.Ids;
 import org.infinispan.security.PrincipalRoleMapper;
-import org.jboss.as.clustering.infinispan.ChannelTransport;
 import org.infinispan.security.impl.ClusterRoleMapper;
+import org.infinispan.server.infinispan.spi.service.CacheContainerServiceName;
+import org.infinispan.server.jgroups.spi.ChannelFactory;
+import org.jboss.as.clustering.infinispan.ChannelTransport;
 import org.jboss.as.clustering.infinispan.MBeanServerProvider;
+import org.jboss.as.clustering.infinispan.ManagedExecutorFactory;
+import org.jboss.as.clustering.infinispan.ManagedScheduledExecutorFactory;
 import org.jboss.as.clustering.infinispan.ThreadPoolExecutorFactories;
 import org.jboss.as.clustering.infinispan.io.SimpleExternalizer;
-import org.jboss.as.clustering.jgroups.ChannelFactory;
-import org.jboss.as.clustering.jgroups.subsystem.ChannelService;
 import org.jboss.marshalling.ModularClassResolver;
 import org.jboss.modules.ModuleIdentifier;
 import org.jboss.modules.ModuleLoadException;
@@ -55,19 +49,27 @@ import org.jboss.msc.service.ServiceName;
 import org.jboss.msc.service.StartContext;
 import org.jboss.msc.service.StartException;
 import org.jboss.msc.service.StopContext;
+import org.jgroups.Channel;
+
+import javax.management.MBeanServer;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ScheduledExecutorService;
 
 /**
  * @author Paul Ferraro
  */
 public class EmbeddedCacheManagerConfigurationService implements Service<EmbeddedCacheManagerConfiguration>, EmbeddedCacheManagerConfiguration {
-    public static ServiceName getServiceName(String name) {
-        return EmbeddedCacheManagerService.getServiceName(name).append("config");
-    }
 
     interface TransportConfiguration {
         Long getLockTimeout();
         ChannelFactory getChannelFactory();
+        Channel getChannel();
         Executor getExecutor();
+        Executor getTotalOrderExecutor();
+        Executor getRemoteCommandExecutor();
         boolean isStrictPeerToPeer();
     }
 
@@ -82,7 +84,9 @@ public class EmbeddedCacheManagerConfigurationService implements Service<Embedde
         AuthorizationConfiguration getAuthorizationConfiguration();
         MBeanServer getMBeanServer();
         Executor getListenerExecutor();
-        ScheduledExecutorService getEvictionExecutor();
+        Executor getAsyncExecutor();
+        Executor getStateTransferExecutor();
+        ScheduledExecutorService getExpirationExecutor();
         ScheduledExecutorService getReplicationQueueExecutor();
     }
 
@@ -149,13 +153,13 @@ public class EmbeddedCacheManagerConfigurationService implements Service<Embedde
         TransportConfigurationBuilder transportBuilder = builder.transport();
 
         if (transport != null) {
-            transportBuilder.transport(new ChannelTransport(context.getController().getServiceContainer(), ChannelService.getServiceName(this.name)));
+            transportBuilder.transport(new ChannelTransport(transport.getChannel(), transport.getChannelFactory()));
             Long timeout = transport.getLockTimeout();
             if (timeout != null) {
                 transportBuilder.distributedSyncTimeout(timeout.longValue());
             }
             // Topology is retrieved from the channel
-            org.jboss.as.clustering.jgroups.TransportConfiguration.Topology topology = transport.getChannelFactory().getProtocolStackConfiguration().getTransport().getTopology();
+            org.infinispan.server.jgroups.spi.TransportConfiguration.Topology topology = transport.getChannelFactory().getProtocolStackConfiguration().getTransport().getTopology();
             if (topology != null) {
                 String site = topology.getSite();
                 if (site != null) {
@@ -174,9 +178,16 @@ public class EmbeddedCacheManagerConfigurationService implements Service<Embedde
 
             Executor executor = transport.getExecutor();
             if (executor != null) {
-                builder.transport().transportThreadPool().threadPoolFactory(
-                      ThreadPoolExecutorFactories.mkManagedExecutorFactory(executor));
+                builder.transport().transportThreadPool().threadPoolFactory(new ManagedExecutorFactory(executor));
             }
+            Executor totalOrderExecutor = transport.getTotalOrderExecutor();
+            if (totalOrderExecutor != null) {
+                builder.transport().totalOrderThreadPool().threadPoolFactory(new ManagedExecutorFactory(totalOrderExecutor));
+           }
+           Executor remoteCommandExecutor = transport.getRemoteCommandExecutor();
+           if (remoteCommandExecutor != null) {
+                builder.transport().remoteCommandThreadPool().threadPoolFactory(new ManagedExecutorFactory(remoteCommandExecutor));
+           }
         }
 
         AuthorizationConfiguration authorization = this.dependencies.getAuthorizationConfiguration();
@@ -203,27 +214,33 @@ public class EmbeddedCacheManagerConfigurationService implements Service<Embedde
 
         Executor listenerExecutor = this.dependencies.getListenerExecutor();
         if (listenerExecutor != null) {
-            builder.listenerThreadPool().threadPoolFactory(
-                  ThreadPoolExecutorFactories.mkManagedExecutorFactory(listenerExecutor));
+            builder.listenerThreadPool().threadPoolFactory(new ManagedExecutorFactory(listenerExecutor));
         }
-        ScheduledExecutorService evictionExecutor = this.dependencies.getEvictionExecutor();
-        if (evictionExecutor != null) {
-            builder.evictionThreadPool().threadPoolFactory(
-                  ThreadPoolExecutorFactories.mkManagedScheduledExecutorFactory(evictionExecutor));
+        Executor asyncExecutor = this.dependencies.getAsyncExecutor();
+        if (asyncExecutor != null) {
+            builder.asyncThreadPool().threadPoolFactory(
+                  ThreadPoolExecutorFactories.mkManagedExecutorFactory(asyncExecutor));
+        }
+        ScheduledExecutorService expirationExecutor = this.dependencies.getExpirationExecutor();
+        if (expirationExecutor != null) {
+            builder.expirationThreadPool().threadPoolFactory(new ManagedScheduledExecutorFactory(expirationExecutor));
         }
         ScheduledExecutorService replicationQueueExecutor = this.dependencies.getReplicationQueueExecutor();
         if (replicationQueueExecutor != null) {
-            builder.replicationQueueThreadPool().threadPoolFactory(
-                  ThreadPoolExecutorFactories.mkManagedScheduledExecutorFactory(replicationQueueExecutor));
+            builder.replicationQueueThreadPool().threadPoolFactory(new ManagedScheduledExecutorFactory(replicationQueueExecutor));
+        }
+        Executor stateTransferExecutor = this.dependencies.getStateTransferExecutor();
+        if (stateTransferExecutor != null) {
+            builder.stateTransferThreadPool().threadPoolFactory(new ManagedExecutorFactory(stateTransferExecutor));
         }
 
         GlobalJmxStatisticsConfigurationBuilder jmxBuilder = builder.globalJmxStatistics().cacheManagerName(this.name);
+        jmxBuilder.jmxDomain(CacheContainerServiceName.CACHE_CONTAINER.getServiceName(null).getCanonicalName());
 
         MBeanServer server = this.dependencies.getMBeanServer();
         if (server != null && this.statistics) {
             jmxBuilder.enable()
                 .mBeanServerLookup(new MBeanServerProvider(server))
-                .jmxDomain(EmbeddedCacheManagerService.getServiceName(null).getCanonicalName())
                 .allowDuplicateDomains(true)
             ;
         } else {

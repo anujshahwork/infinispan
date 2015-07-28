@@ -1,30 +1,50 @@
 package org.infinispan.notifications.cachelistener;
 
+import org.infinispan.Cache;
+import org.infinispan.configuration.cache.CacheMode;
+import org.infinispan.configuration.cache.Configuration;
+import org.infinispan.container.InternalEntryFactoryImpl;
+import org.infinispan.distribution.DistributionManager;
+import org.infinispan.interceptors.locking.ClusteringDependentLogic;
 import org.infinispan.notifications.IncorrectListenerException;
 import org.infinispan.notifications.Listener;
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryRemoved;
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryVisited;
+import org.infinispan.notifications.cachelistener.cluster.ClusterEventManager;
 import org.infinispan.notifications.cachelistener.event.CacheEntryRemovedEvent;
 import org.infinispan.notifications.cachelistener.event.Event;
 import org.infinispan.test.AbstractInfinispanTest;
-
-import static org.testng.AssertJUnit.*;
 import org.testng.annotations.Test;
 
 import java.util.List;
 
+import static org.mockito.Mockito.*;
+import static org.testng.AssertJUnit.*;
+
 @Test(groups = "unit", testName = "notifications.cachelistener.ListenerRegistrationTest")
 public class ListenerRegistrationTest extends AbstractInfinispanTest {
+
+   private CacheNotifierImpl newNotifier() {
+      CacheNotifierImpl notifier = new CacheNotifierImpl();
+      Cache mockCache = mock(Cache.class, RETURNS_DEEP_STUBS);
+      Configuration config = mock(Configuration.class, RETURNS_DEEP_STUBS);
+      when(config.clustering().cacheMode()).thenReturn(CacheMode.LOCAL);
+      notifier.injectDependencies(mockCache, new ClusteringDependentLogic.LocalLogic(), null, config,
+                           mock(DistributionManager.class), new InternalEntryFactoryImpl(),
+                           mock(ClusterEventManager.class));
+      return notifier;
+   }
+
    public void testControl() {
       Object l = new TestControlListener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       n.addListener(l);
       assertEquals(1, n.getListeners().size());
    }
 
    public void testCacheListenerNoMethods() {
       Object l = new TestCacheListenerNoMethodsListener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       n.addListener(l);
       assertEquals("Hello", l.toString());
       assertTrue("No listeners should be registered.", n.getListeners().isEmpty()); // since the valid listener has no methods to listen
@@ -32,7 +52,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testNonAnnotatedListener() {
       Object l = new TestNonAnnotatedListener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       try {
          n.addListener(l);
          fail("Should not accept an un-annotated cache listener");
@@ -45,7 +65,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testNonPublicListener() {
       Object l = new TestNonPublicListener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       try {
          n.addListener(l);
          fail("Should not accept a private callback class");
@@ -58,7 +78,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testNonPublicListenerMethod() {
       Object l = new TestNonPublicListenerMethodListener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       n.addListener(l);
 
       // should not fail, should just not register anything
@@ -68,7 +88,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testNonVoidReturnTypeMethod() {
       Object l = new TestNonVoidReturnTypeMethodListener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       try {
          n.addListener(l);
          fail("Should not accept a listener method with a return type");
@@ -81,7 +101,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testIncorrectMethodSignature1() {
       Object l = new TestIncorrectMethodSignature1Listener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       try {
          n.addListener(l);
          fail("Should not accept a cache listener with a bad method signature");
@@ -94,7 +114,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testIncorrectMethodSignature2() {
       Object l = new TestIncorrectMethodSignature2Listener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       try {
          n.addListener(l);
          fail("Should not accept a cache listener with a bad method signature");
@@ -107,7 +127,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testIncorrectMethodSignature3() {
       Object l = new TestIncorrectMethodSignature3Listener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       try {
          n.addListener(l);
          fail("Should not accept a cache listener with a bad method signature");
@@ -120,7 +140,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testUnassignableMethodSignature() {
       Object l = new TestUnassignableMethodSignatureListener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       try {
          n.addListener(l);
          fail("Should not accept a cache listener with a bad method signature");
@@ -133,7 +153,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testPartlyUnassignableMethodSignature() {
       Object l = new TestPartlyUnassignableMethodSignatureListener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       try {
          n.addListener(l);
          fail("Should not accept a cache listener with a bad method signature");
@@ -145,7 +165,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testMultipleMethods() {
       Object l = new TestMultipleMethodsListener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       n.addListener(l);
       List invocations = n.cacheEntryVisitedListeners;
       assertEquals(1, invocations.size());
@@ -156,7 +176,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testMultipleAnnotationsOneMethod() {
       Object l = new TestMultipleAnnotationsOneMethodListener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       n.addListener(l);
       List invocations = n.cacheEntryVisitedListeners;
       assertEquals(1, invocations.size());
@@ -167,7 +187,7 @@ public class ListenerRegistrationTest extends AbstractInfinispanTest {
 
    public void testMultipleMethodsOneAnnotation() {
       Object l = new TestMultipleMethodsOneAnnotationListener();
-      CacheNotifierImpl n = new CacheNotifierImpl();
+      CacheNotifierImpl n = newNotifier();
       n.addListener(l);
       List invocations = n.cacheEntryVisitedListeners;
       assertEquals(2, invocations.size());

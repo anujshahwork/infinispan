@@ -20,7 +20,11 @@ package org.infinispan.server.endpoint;
 
 import org.jboss.as.controller.PathElement;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
+import org.jboss.as.server.deployment.AttachmentKey;
+import org.jboss.as.server.deployment.AttachmentList;
 import org.jboss.msc.service.ServiceName;
+
+import static org.infinispan.server.endpoint.EndpointLogger.ROOT_LOGGER;
 
 /**
  * @author <a href="http://gleamynode.net/">Trustin Lee</a>
@@ -29,14 +33,31 @@ import org.jboss.msc.service.ServiceName;
 public class Constants {
 
    private static final ServiceName JBOSS = ServiceName.of("jboss");
-   public static final String SUBSYSTEM_NAME = "endpoint";
+   public static final String SUBSYSTEM_NAME = "datagrid-infinispan-endpoint";
 
    public static final ServiceName DATAGRID = JBOSS.append(SUBSYSTEM_NAME);
    public static final PathElement SUBSYSTEM_PATH = PathElement.pathElement(ModelDescriptionConstants.SUBSYSTEM, SUBSYSTEM_NAME);
+   public static final ServiceName EXTENSION_MANAGER_NAME = DATAGRID.append("extension-manager");
+
+   public static final int INSTALL_FILTER_FACTORY = 0x1801;
+   public static final int INSTALL_CONVERTER_FACTORY = 0x1802;
+   public static final int INSTALL_MARSHALLER = 0x1803;
+   public static final int INSTALL_FILTER_CONVERTER_FACTORY = 0x1804;
+   public static final int INSTALL_KEY_VALUE_FILTER_CONVERTER_FACTORY = 0x1805;
+   public static final int DEPENDENCIES = 0x1C01;
 
    public static String VERSION = Constants.class.getPackage().getImplementationVersion();
+
+    public static final AttachmentKey<AttachmentList<ServiceName>> FILTER_FACTORY_SERVICES = AttachmentKey.createList(ServiceName.class);
 
    private Constants() {
       // Constant table
    }
+
+   public static <T> T notNull(T value) {
+      if (value == null)
+         throw ROOT_LOGGER.serviceNotStarted();
+      return value;
+   }
+
 }

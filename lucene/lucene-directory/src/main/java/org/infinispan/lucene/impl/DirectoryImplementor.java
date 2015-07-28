@@ -2,7 +2,6 @@ package org.infinispan.lucene.impl;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.util.Set;
 
 import org.apache.lucene.index.IndexFileNames;
 import org.apache.lucene.store.IndexOutput;
@@ -13,6 +12,7 @@ import org.infinispan.lucene.ChunkCacheKey;
 import org.infinispan.lucene.FileCacheKey;
 import org.infinispan.lucene.FileMetadata;
 import org.infinispan.lucene.readlocks.SegmentReadLocker;
+import org.infinispan.persistence.spi.PersistenceException;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 
@@ -40,30 +40,24 @@ class DirectoryImplementor {
     private final SegmentReadLocker readLocks;
     private final FileCacheKey segmentsGenFileKey;
 
-    public DirectoryImplementor(Cache<?, ?> metadataCache, Cache<?, ?> chunksCache, String indexName, int chunkSize, SegmentReadLocker readLocker) {
+    public DirectoryImplementor(Cache<?, ?> metadataCache, Cache<?, ?> chunksCache, String indexName, int chunkSize, SegmentReadLocker readLocker, boolean fileListUpdatedAsync) {
         if (chunkSize <= 0)
            throw new IllegalArgumentException("chunkSize must be a positive integer");
         this.metadataCache = (AdvancedCache<FileCacheKey, FileMetadata>) metadataCache.getAdvancedCache().withFlags(Flag.SKIP_INDEXING);
         this.chunksCache = (AdvancedCache<ChunkCacheKey, Object>) chunksCache.getAdvancedCache().withFlags(Flag.SKIP_INDEXING);
         this.indexName = indexName;
         this.chunkSize = chunkSize;
-        this.fileOps = new FileListOperations(this.metadataCache, indexName);
+        this.fileOps = new FileListOperations(this.metadataCache, indexName, fileListUpdatedAsync);
         segmentsGenFileKey = new FileCacheKey(indexName, IndexFileNames.SEGMENTS_GEN);
         this.readLocks = readLocker;
      }
 
     String[] list() {
-       final Set<String> files = fileOps.getFileList();
-       //Careful! if you think you can optimize this array allocation, think again.
-       //The _files_ are a concurrent structure, its size could vary in parallel:
-       //the array population and dimensioning need to be performed atomically
-       //to avoid trailing null elements in the returned array.
-       final String[] array = files.toArray(new String[0]);
-       return array;
+       return fileOps.listFilenames();
     }
 
     boolean fileExists(final String name) {
-       return fileOps.getFileList().contains(name);
+       return fileOps.fileExists(name);
     }
 
     void deleteFile(final String name) {
@@ -115,23 +109,31 @@ class DirectoryImplementor {
 
     IndexOutput createOutput(final String name) {
        if (IndexFileNames.SEGMENTS_GEN.equals(name)) {
-          return new CheckSummingIndexOutput(metadataCache, chunksCache, segmentsGenFileKey, chunkSize, fileOps);
+          return new InfinispanIndexOutput(metadataCache, chunksCache, segmentsGenFileKey, chunkSize, fileOps);
        }
        else {
           final FileCacheKey key = new FileCacheKey(indexName, name);
           // creating new file, metadata is added on flush() or close() of
           // IndexOutPut
-          return new CheckSummingIndexOutput(metadataCache, chunksCache, key, chunkSize, fileOps);
+          return new InfinispanIndexOutput(metadataCache, chunksCache, key, chunkSize, fileOps);
        }
     }
 
     IndexInputContext openInput(final String name) throws IOException {
        final FileCacheKey fileKey = new FileCacheKey(indexName, name);
-       final FileMetadata fileMetadata = metadataCache.get(fileKey);
+       FileMetadata fileMetadata;
+       try {
+          fileMetadata = metadataCache.get(fileKey);
+       }
+       catch (PersistenceException pe) {
+          //When loading through the LuceneCacheLoader, a valid FileNotFoundException would be wrapped by a PersistenceException:
+          //just ignore it so that we re-throw the needed FileNotFoundException
+          fileMetadata = null;
+       }
        if (fileMetadata == null) {
           throw new FileNotFoundException("Error loading metadata for index file: " + fileKey);
        }
-       else if (fileMetadata.getSize() <= fileMetadata.getBufferSize()) {
+       else if (!fileMetadata.isMultiChunked()) {
           //files smaller than chunkSize don't need a readLock
           return new IndexInputContext(chunksCache, fileKey, fileMetadata, null);
        }

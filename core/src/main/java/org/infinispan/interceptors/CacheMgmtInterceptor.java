@@ -1,7 +1,16 @@
 package org.infinispan.interceptors;
 
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
+
 import org.infinispan.commands.FlagAffectedCommand;
+import org.infinispan.commands.read.AbstractDataCommand;
+import org.infinispan.commands.read.GetCacheEntryCommand;
 import org.infinispan.commands.read.GetKeyValueCommand;
+import org.infinispan.commands.read.GetAllCommand;
 import org.infinispan.commands.write.EvictCommand;
 import org.infinispan.commands.write.PutKeyValueCommand;
 import org.infinispan.commands.write.PutMapCommand;
@@ -23,11 +32,6 @@ import org.infinispan.jmx.annotations.Units;
 import org.infinispan.util.TimeService;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
-
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import org.infinispan.commons.util.concurrent.jdk8backported.LongAdder;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Captures cache management statistics
@@ -83,7 +87,14 @@ public class CacheMgmtInterceptor extends JmxStatsCommandInterceptor {
    }
 
    @Override
-   public Object visitGetKeyValueCommand(InvocationContext ctx, GetKeyValueCommand command) throws Throwable {
+   public final Object visitGetKeyValueCommand(InvocationContext ctx, GetKeyValueCommand command) throws Throwable {
+      return visitDataReadCommand(ctx, command);
+   }
+   @Override
+   public final Object visitGetCacheEntryCommand(InvocationContext ctx, GetCacheEntryCommand command) throws Throwable {
+      return visitDataReadCommand(ctx, command);
+   }
+   private Object visitDataReadCommand(InvocationContext ctx, AbstractDataCommand command) throws Throwable {
       long start = 0;
       boolean statisticsEnabled = getStatisticsEnabled(command);
       if (statisticsEnabled)
@@ -91,16 +102,48 @@ public class CacheMgmtInterceptor extends JmxStatsCommandInterceptor {
 
       Object retval = invokeNextInterceptor(ctx, command);
 
-      if (statisticsEnabled) {
+      if (statisticsEnabled && ctx.isOriginLocal()) {
          long intervalMilliseconds = timeService.timeDuration(start, TimeUnit.MILLISECONDS);
-         if (ctx.isOriginLocal()) {
-            if (retval == null) {
-               missTimes.add(intervalMilliseconds);
-               misses.increment();
-            } else {
-               hitTimes.add(intervalMilliseconds);
-               hits.increment();
+         if (retval == null) {
+            missTimes.add(intervalMilliseconds);
+            misses.increment();
+         } else {
+            hitTimes.add(intervalMilliseconds);
+            hits.increment();
+         }
+      }
+
+      return retval;
+   }
+
+   @SuppressWarnings("unchecked")
+   @Override
+   public Object visitGetAllCommand(InvocationContext ctx, GetAllCommand command) throws Throwable {
+      long start = 0;
+      boolean statisticsEnabled = getStatisticsEnabled(command);
+      if (statisticsEnabled)
+         start = timeService.time();
+
+      Object retval = invokeNextInterceptor(ctx, command);
+
+      if (statisticsEnabled && ctx.isOriginLocal()) {
+         long intervalMilliseconds = timeService.timeDuration(start, TimeUnit.MILLISECONDS);
+         int requests = command.getKeys().size();
+         int hitCount = 0;
+         for (Entry<Object, Object> entry : ((Map<Object, Object>) retval).entrySet()) {
+            if (entry.getValue() != null) {
+               hitCount++;
             }
+         }
+         
+         int missCount = requests - hitCount;
+         if (hitCount > 0) {
+            hits.add(hitCount);
+            hitTimes.add(intervalMilliseconds * hitCount / requests);
+         }
+         if (missCount > 0) {
+            misses.add(missCount);
+            missTimes.add(intervalMilliseconds * missCount / requests);
          }
       }
 
@@ -116,10 +159,10 @@ public class CacheMgmtInterceptor extends JmxStatsCommandInterceptor {
 
       final Object retval = invokeNextInterceptor(ctx, command);
 
-      if (statisticsEnabled) {
+      if (statisticsEnabled && ctx.isOriginLocal()) {
          final long intervalMilliseconds = timeService.timeDuration(start, TimeUnit.MILLISECONDS);
          final Map<Object, Object> data = command.getMap();
-         if (data != null && ctx.isOriginLocal() && !data.isEmpty()) {
+         if (data != null && !data.isEmpty()) {
             storeTimes.add(intervalMilliseconds);
             stores.add(data.size());
          }
@@ -276,9 +319,10 @@ public class CacheMgmtInterceptor extends JmxStatsCommandInterceptor {
    )
    @SuppressWarnings("unused")
    public double getReadWriteRatio() {
-      if (stores.sum() == 0)
+      long sum = stores.sum();
+      if (sum == 0)
          return 0;
-      return (((double) (hits.sum() + misses.sum()) / (double) stores.sum()));
+      return (((double) (hits.sum() + misses.sum()) / (double) sum));
    }
 
    @ManagedAttribute(
@@ -303,9 +347,10 @@ public class CacheMgmtInterceptor extends JmxStatsCommandInterceptor {
    )
    @SuppressWarnings("unused")
    public long getAverageWriteTime() {
-      if (stores.sum() == 0)
+      long sum = stores.sum();
+      if (sum == 0)
          return 0;
-      return (storeTimes.sum()) / stores.sum();
+      return (storeTimes.sum()) / sum;
    }
 
    @ManagedAttribute(
@@ -338,8 +383,27 @@ public class CacheMgmtInterceptor extends JmxStatsCommandInterceptor {
          measurementType = MeasurementType.TRENDSUP,
          displayType = DisplayType.SUMMARY
    )
-   public long getElapsedTime() {
+   public long getTimeSinceStart() {
       return timeService.timeDuration(startNanoseconds.get(), TimeUnit.SECONDS);
+   }
+
+   /**
+    * Returns number of seconds since cache started
+    *
+    * @deprecated use {@link #getTimeSinceStart()} instead.
+    * @return number of seconds since cache started
+    */
+   @ManagedAttribute(
+         description = "Number of seconds since cache started",
+         displayName = "Seconds since cache started",
+         units = Units.SECONDS,
+         measurementType = MeasurementType.TRENDSUP,
+         displayType = DisplayType.SUMMARY
+   )
+   @Deprecated
+   public long getElapsedTime() {
+      // backward compatibility as we renamed ElapsedTime to TimeSinceStart
+      return getTimeSinceStart();
    }
 
    @ManagedAttribute(

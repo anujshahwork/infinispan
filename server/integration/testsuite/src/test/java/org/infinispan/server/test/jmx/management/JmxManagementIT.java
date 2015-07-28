@@ -24,6 +24,7 @@ import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
+import org.infinispan.server.infinispan.spi.InfinispanSubsystem;
 import org.infinispan.server.test.client.memcached.MemcachedClient;
 import org.jboss.arquillian.junit.Arquillian;
 import org.junit.Before;
@@ -44,10 +45,10 @@ import org.junit.runner.RunWith;
 @RunWith(Arquillian.class)
 @WithRunningServer({@RunningServer(name = "jmx-management-1"),@RunningServer(name = "jmx-management-2")})
 public class JmxManagementIT {
-
+    final String JMX_DOMAIN = "jboss." + InfinispanSubsystem.SUBSYSTEM_NAME;
     /* cache MBeans */
-    final String distCachePrefix = "jboss.infinispan:type=Cache,name=\"default(dist_sync)\",manager=\"clustered\",component=";
-    final String memcachedCachePrefix = "jboss.infinispan:type=Cache,name=\"memcachedCache(dist_sync)\",manager=\"clustered\",component=";
+    final String distCachePrefix = JMX_DOMAIN + ":type=Cache,name=\"default(dist_sync)\",manager=\"clustered\",component=";
+    final String memcachedCachePrefix = JMX_DOMAIN + ":type=Cache,name=\"memcachedCache(dist_sync)\",manager=\"clustered\",component=";
     final String distCacheMBean = distCachePrefix + "Cache";
     final String distributionManagerMBean = distCachePrefix + "DistributionManager";
     // was renamed from DistributedStateTransferManager to StateTransferManager in 6.1.0ER1
@@ -56,13 +57,13 @@ public class JmxManagementIT {
     final String rpcManagerMBean = distCachePrefix + "RpcManager";
     final String distCacheStatisticsMBean = distCachePrefix + "Statistics";
     final String memcachedCacheStatisticsMBean = memcachedCachePrefix + "Statistics";
-    final String newExtraCacheMBean = "jboss.infinispan:type=Cache,name=\"extracache(local)\",manager=\"clustered\",component=Cache";
+    final String newExtraCacheMBean = JMX_DOMAIN + ":type=Cache,name=\"extracache(local)\",manager=\"clustered\",component=Cache";
     /* cache manager MBeans */
-    final String managerPrefix = "jboss.infinispan:type=CacheManager,name=\"clustered\",component=";
+    final String managerPrefix = JMX_DOMAIN + ":type=CacheManager,name=\"clustered\",component=";
     final String cacheManagerMBean = managerPrefix + "CacheManager";
     /* server module MBeans */
-    final String hotRodServerMBean = "jboss.infinispan:type=Server,name=HotRod,component=Transport";
-    final String memCachedServerMBean = "jboss.infinispan:type=Server,name=Memcached,component=Transport";
+    final String hotRodServerMBean = JMX_DOMAIN + ":type=Server,name=HotRod,component=Transport";
+    final String memCachedServerMBean = JMX_DOMAIN + ":type=Server,name=Memcached,component=Transport";
     final String protocolMBeanPrefix = "jgroups:type=protocol,cluster=\"default\",protocol=";
 
     @InfinispanResource("jmx-management-1")
@@ -79,29 +80,17 @@ public class JmxManagementIT {
 
     @Before
     public void setUp() throws IOException {
-        provider = new MBeanServerConnectionProvider(server1.getHotrodEndpoint().getInetAddress().getHostName(), SERVER1_MGMT_PORT);
-        provider2 = new MBeanServerConnectionProvider(server2.getHotrodEndpoint().getInetAddress().getHostName(), SERVER2_MGMT_PORT);
-        if (manager == null) {
+        if (provider == null) { // initialize just once
+            provider = new MBeanServerConnectionProvider(server1.getHotrodEndpoint().getInetAddress().getHostName(), SERVER1_MGMT_PORT);
+            provider2 = new MBeanServerConnectionProvider(server2.getHotrodEndpoint().getInetAddress().getHostName(), SERVER2_MGMT_PORT);
             Configuration conf = new ConfigurationBuilder().addServer().host(server1.getHotrodEndpoint().getInetAddress().getHostName()).port(server1
                     .getHotrodEndpoint().getPort()).build();
             manager = new RemoteCacheManager(conf);
+            distCache = manager.getCache();
+            mc = new MemcachedClient("UTF-8", server1.getMemcachedEndpoint().getInetAddress()
+                    .getHostName(), server1.getMemcachedEndpoint().getPort(), 10000);
         }
-        distCache = manager.getCache();
-        mc = new MemcachedClient("UTF-8", server1.getMemcachedEndpoint().getInetAddress()
-                .getHostName(), server1.getMemcachedEndpoint().getPort(), 10000);
-        assertDefaultCacheEmpty();
-    }
-
-    private void assertDefaultCacheEmpty() {
-        while (server1.getCacheManager("clustered").getDefaultCache().getNumberOfEntries() != 0 ||
-                server2.getCacheManager("clustered").getDefaultCache().getNumberOfEntries() != 0) {
-            try {
-                distCache.clear();
-                Thread.sleep(200);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-        }
+        distCache.clear();
     }
 
     @Test
@@ -171,19 +160,18 @@ public class JmxManagementIT {
 
     @Test
     public void testCacheManagerAttributes() throws Exception {
-        assertEquals(4, Integer.parseInt(getAttribute(provider, cacheManagerMBean, "CreatedCacheCount")));
-        assertEquals(4, Integer.parseInt(getAttribute(provider, cacheManagerMBean, "DefinedCacheCount")));
+        assertEquals(5, Integer.parseInt(getAttribute(provider, cacheManagerMBean, "CreatedCacheCount")));
+        assertEquals(5, Integer.parseInt(getAttribute(provider, cacheManagerMBean, "DefinedCacheCount")));
         assertEquals("clustered", getAttribute(provider, cacheManagerMBean, "Name"));
         assertEquals(2, Integer.parseInt(getAttribute(provider, cacheManagerMBean, "ClusterSize")));
         assertEquals("RUNNING", getAttribute(provider, cacheManagerMBean, "CacheManagerStatus"));
         assertNotEquals(0, getAttribute(provider, cacheManagerMBean, "ClusterMembers").length());
         assertNotEquals(0, getAttribute(provider, cacheManagerMBean, "NodeAddress").length());
-        assertEquals(4, Integer.parseInt(getAttribute(provider, cacheManagerMBean, "RunningCacheCount")));
+        assertEquals(5, Integer.parseInt(getAttribute(provider, cacheManagerMBean, "RunningCacheCount")));
         assertNotEquals(0, getAttribute(provider, cacheManagerMBean, "PhysicalAddresses").length());
-        assertEquals(Version.VERSION, getAttribute(provider, cacheManagerMBean, "Version"));
+        assertEquals(Version.getVersion(), getAttribute(provider, cacheManagerMBean, "Version"));
         String names = getAttribute(provider, cacheManagerMBean, "DefinedCacheNames");
-        assertTrue(names.contains("default") && names.contains("memcachedCache") &&
-                names.contains("hotRodTopologyCache"));
+        assertTrue(names.contains("default") && names.contains("memcachedCache"));
     }
 
     @Ignore("Not supported - https://bugzilla.redhat.com/show_bug.cgi?id=785105")
@@ -287,6 +275,6 @@ public class JmxManagementIT {
     /* for channel and protocol MBeans, test only they're registered, not all the attributes/operations */
     @Test
     public void testJGroupsChannelMBeanAvailable() throws Exception {
-        assertTrue(provider.getConnection().isRegistered(new ObjectName("jgroups:type=channel,cluster=\"clustered\"")));
+        assertTrue(provider.getConnection().isRegistered(new ObjectName("jgroups:type=channel,cluster=\"cluster\"")));
     }
 }

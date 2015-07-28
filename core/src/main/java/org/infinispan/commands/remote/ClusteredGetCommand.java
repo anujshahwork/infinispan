@@ -1,10 +1,11 @@
 package org.infinispan.commands.remote;
 
+import java.util.EnumSet;
+import java.util.Set;
+
 import org.infinispan.commands.CommandsFactory;
-import org.infinispan.commands.FlagAffectedCommand;
-import org.infinispan.commands.Visitor;
 import org.infinispan.commands.control.LockControlCommand;
-import org.infinispan.commands.read.GetKeyValueCommand;
+import org.infinispan.commands.read.GetCacheEntryCommand;
 import org.infinispan.commons.equivalence.Equivalence;
 import org.infinispan.container.InternalEntryFactory;
 import org.infinispan.container.entries.CacheEntry;
@@ -16,16 +17,10 @@ import org.infinispan.context.InvocationContext;
 import org.infinispan.context.InvocationContextFactory;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.interceptors.InterceptorChain;
-import org.infinispan.lifecycle.ComponentStatus;
-import org.infinispan.metadata.Metadata;
 import org.infinispan.transaction.impl.TransactionTable;
 import org.infinispan.transaction.xa.GlobalTransaction;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
-
-import java.util.Arrays;
-import java.util.EnumSet;
-import java.util.Set;
 
 /**
  * Issues a remote get call.  This is not a {@link org.infinispan.commands.VisitableCommand} and hence not passed up the
@@ -35,7 +30,7 @@ import java.util.Set;
  * @author Mircea.Markus@jboss.com
  * @since 4.0
  */
-public class ClusteredGetCommand extends BaseRpcCommand implements FlagAffectedCommand {
+public class ClusteredGetCommand extends LocalFlagAffectedRpcCommand {
 
    public static final byte COMMAND_ID = 16;
    private static final Log log = LogFactory.getLog(ClusteredGetCommand.class);
@@ -48,29 +43,26 @@ public class ClusteredGetCommand extends BaseRpcCommand implements FlagAffectedC
    private InterceptorChain invoker;
    private boolean acquireRemoteLock;
    private GlobalTransaction gtx;
-   private Set<Flag> flags;
 
    private DistributionManager distributionManager;
    private TransactionTable txTable;
    private InternalEntryFactory entryFactory;
-   private int topologyId;
    private Equivalence keyEquivalence;
    //only used by extended statistics. this boolean is local.
    private boolean isWrite;
 
    private ClusteredGetCommand() {
-      super(null); // For command id uniqueness test
+      super(null, null); // For command id uniqueness test
    }
 
    public ClusteredGetCommand(String cacheName) {
-      super(cacheName);
+      super(cacheName, null);
    }
 
    public ClusteredGetCommand(Object key, String cacheName, Set<Flag> flags,
          boolean acquireRemoteLock, GlobalTransaction gtx, Equivalence keyEquivalence) {
-      super(cacheName);
+      super(cacheName, flags);
       this.key = key;
-      this.flags = flags;
       this.acquireRemoteLock = acquireRemoteLock;
       this.gtx = gtx;
       this.keyEquivalence = keyEquivalence;
@@ -104,7 +96,7 @@ public class ClusteredGetCommand extends BaseRpcCommand implements FlagAffectedC
       // as our caller is already calling the ClusteredGetCommand on all the relevant nodes
       Set<Flag> commandFlags = EnumSet.of(Flag.SKIP_REMOTE_LOOKUP, Flag.CACHE_MODE_LOCAL);
       if (this.flags != null) commandFlags.addAll(this.flags);
-      GetKeyValueCommand command = commandsFactory.buildGetKeyValueCommand(key, commandFlags, true);
+      GetCacheEntryCommand command = commandsFactory.buildGetCacheEntryCommand(key, commandFlags);
       InvocationContext invocationContext = icf.createRemoteInvocationContextForCommand(command, getOrigin());
       CacheEntry cacheEntry = (CacheEntry) invoker.invoke(invocationContext, command);
       if (cacheEntry == null) {
@@ -197,67 +189,12 @@ public class ClusteredGetCommand extends BaseRpcCommand implements FlagAffectedC
    }
 
    @Override
-   public Set<Flag> getFlags() {
-      return flags;
-   }
-
-   @Override
-   public void setFlags(Set<Flag> flags) {
-      this.flags = flags;
-   }
-
-   @Override
-   public void setFlags(Flag... flags) {
-      if (flags == null || flags.length == 0) return;
-      if (this.flags == null)
-         this.flags = EnumSet.copyOf(Arrays.asList(flags));
-      else
-         this.flags.addAll(Arrays.asList(flags));
-   }
-
-   @Override
-   public boolean hasFlag(Flag flag) {
-      return flags != null && flags.contains(flag);
-   }
-
-   @Override
    public boolean isReturnValueExpected() {
       return true;
    }
 
    @Override
-   public int getTopologyId() {
-      return topologyId;
-   }
-
-   @Override
-   public void setTopologyId(int topologyId) {
-      this.topologyId = topologyId;
-   }
-
-   @Override
-   public Object acceptVisitor(InvocationContext ctx, Visitor visitor) throws Throwable {
-      return visitor.visitUnknownCommand(ctx, this);
-   }
-
-   @Override
-   public boolean shouldInvoke(InvocationContext ctx) {
-      return true;
-   }
-
-   @Override
-   public boolean ignoreCommandOnStatus(ComponentStatus status) {
+   public boolean canBlock() {
       return false;
    }
-
-   @Override
-   public Metadata getMetadata() {
-      return null;
-   }
-
-   @Override
-   public void setMetadata(Metadata metadata) {
-      // no-op
-   }
-
 }

@@ -11,13 +11,23 @@ import org.infinispan.manager.EmbeddedCacheManager;
 public class CacheManagerCallable {
 
    protected final EmbeddedCacheManager cm;
+   private final boolean clear;
 
    public CacheManagerCallable(EmbeddedCacheManager cm) {
-      this.cm = cm;
+      this(cm, false);
    }
 
-   public void call() {
+   public CacheManagerCallable(EmbeddedCacheManager cm, boolean clear) {
+      this.cm = cm;
+      this.clear = clear;
+   }
+
+   public void call() throws Exception {
       // No-op
+   }
+
+   public final boolean clearBeforeKill() {
+      return clear;
    }
 
 }

@@ -40,8 +40,8 @@ public class NoOpVisitor implements Visitor {
    }
 
    @Override
-   public BooleanExpr visit(RegexExpr regexExpr) {
-      return regexExpr;
+   public BooleanExpr visit(LikeExpr likeExpr) {
+      return likeExpr;
    }
 
    @Override
@@ -52,5 +52,10 @@ public class NoOpVisitor implements Visitor {
    @Override
    public ValueExpr visit(PropertyValueExpr propertyValueExpr) {
       return propertyValueExpr;
+   }
+
+   @Override
+   public ValueExpr visit(AggregationExpr aggregationExpr) {
+      return aggregationExpr;
    }
 }

@@ -8,6 +8,7 @@ import java.io.Serializable;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.*;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.infinispan.AdvancedCache;
@@ -21,6 +22,7 @@ import org.infinispan.commons.marshall.StreamingMarshaller;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.commons.util.Util;
 import org.infinispan.commons.util.concurrent.FutureListener;
+import org.infinispan.commons.util.concurrent.NoOpFuture;
 import org.infinispan.commons.util.concurrent.NotifyingFuture;
 import org.infinispan.commons.util.concurrent.NotifyingFutureImpl;
 import org.infinispan.configuration.cache.Configuration;
@@ -36,6 +38,7 @@ import org.infinispan.remoting.rpc.ResponseMode;
 import org.infinispan.remoting.rpc.RpcManager;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.remoting.transport.TopologyAwareAddress;
+import org.infinispan.remoting.transport.jgroups.SuspectException;
 import org.infinispan.security.AuthorizationManager;
 import org.infinispan.security.AuthorizationPermission;
 import org.infinispan.util.TimeService;
@@ -161,8 +164,17 @@ public class DefaultExecutorService extends AbstractExecutorService implements D
          throw new IllegalArgumentException("Can not use null cache for DefaultExecutorService");
       else if (localExecutorService == null)
          throw new IllegalArgumentException("Can not use null instance of ExecutorService");
-      else if (localExecutorService.isShutdown())
-         throw new IllegalArgumentException("Can not use an instance of ExecutorService which is shutdown");
+      else {
+         try {
+            if (localExecutorService.isShutdown())
+               throw new IllegalArgumentException("Can not use an instance of ExecutorService which is shutdown");
+         } catch (IllegalStateException e) {
+            if (takeExecutorOwnership) {
+               throw new IllegalArgumentException("Can not take ownership of a ManagedExecutorService");
+            }
+         }
+      }
+
       ensureAccessPermissions(masterCacheNode.getAdvancedCache());
       ensureProperCacheState(masterCacheNode.getAdvancedCache());
 
@@ -402,8 +414,8 @@ public class DefaultExecutorService extends AbstractExecutorService implements D
          throw new NullPointerException();
       List<Address> members = getMembers();
       if (!members.contains(target)) {
-         throw new IllegalArgumentException("Target node " + target
-                  + " is not a cluster member, members are " + members);
+         return new NoOpFuture<>(new SuspectException("Target node " + target
+                  + " is not a cluster member, members are " + members));
       }
       Address me = getAddress();
       DistributedExecuteCommand<T> c = null;
@@ -851,9 +863,9 @@ public class DefaultExecutorService extends AbstractExecutorService implements D
          } catch (Exception e) {
             // The RPC could have finished with a org.infinispan.util.concurrent.TimeoutException right before
             // the Future.get timeout expired. If that's the case, we want to throw a TimeoutException.
-            long remainingNanos = timeoutNanos > 0 ? timeService.remainingTime(endNanos, TimeUnit.NANOSECONDS) : timeoutNanos;
-            if (timeoutNanos > 0 && remainingNanos <= 0) {
-               if (trace) log.tracef("Distributed task timed out, throwing a TimeoutException and ignoring exception", e);
+            if (e instanceof ExecutionException && e.getCause() instanceof org.infinispan.util.concurrent.TimeoutException) {
+               if (trace) log.tracef(
+                     "Distributed task timed out, throwing a TimeoutException and ignoring exception", e);
                throw new TimeoutException();
             }
             boolean canFailover = failedOverCount++ < getOwningTask().getTaskFailoverPolicy().maxFailoverAttempts();
@@ -916,45 +928,12 @@ public class DefaultExecutorService extends AbstractExecutorService implements D
             }
          };
 
-         Address target = getOwningTask().getTaskFailoverPolicy().failover(fc);
+         Address failoverTarget = getOwningTask().getTaskFailoverPolicy().failover(fc);
+         log.distributedTaskFailover(fc.executionFailureLocation(), failoverTarget, cause);
          DistributedTaskPart<V> part = createDistributedTaskPart(owningTask, distCommand,
-               getInputKeys(), target, failedOverCount);
+               getInputKeys(), failoverTarget, failedOverCount);
          part.execute();
          return part.get(timeout, unit);
-      }
-
-      @Override
-      public int hashCode() {
-         final int prime = 31;
-         int result = 1;
-         result = prime * result + getOuterType().hashCode();
-         result = prime * result + ((distCommand == null) ? 0 : distCommand.hashCode());
-         return result;
-      }
-
-      @Override
-      public boolean equals(Object obj) {
-         if (this == obj) {
-            return true;
-         }
-         if (obj == null) {
-            return false;
-         }
-         if (!(obj instanceof DistributedTaskPart)) {
-            return false;
-         }
-         DistributedTaskPart other = (DistributedTaskPart) obj;
-         if (!getOuterType().equals(other.getOuterType())) {
-            return false;
-         }
-         if (distCommand == null) {
-            if (other.distCommand != null) {
-               return false;
-            }
-         } else if (!distCommand.equals(other.distCommand)) {
-            return false;
-         }
-         return true;
       }
 
       protected void setCancelled() {
@@ -964,7 +943,7 @@ public class DefaultExecutorService extends AbstractExecutorService implements D
 
    private class RemoteDistributedTaskPart<V> extends DistributedTaskPart<V> {
       private final Address executionTarget;
-      private final NotifyingFutureImpl<Object> future = new NotifyingFutureImpl<Object>();
+      private CompletableFuture<Map<Address, Response>> future;
 
       public RemoteDistributedTaskPart(DistributedTask<V> task, DistributedExecuteCommand<V> command,
                                  List<Object> inputKeys, Address executionTarget, int failoverCount) {
@@ -980,12 +959,15 @@ public class DefaultExecutorService extends AbstractExecutorService implements D
          return executionTarget;
       }
 
+      @Override
       public void execute() {
          if (trace) log.tracef("Sending %s to remote execution at node %s", this, getExecutionTarget());
          try {
-            rpc.invokeRemotelyInFuture(Collections.singletonList(getExecutionTarget()), getCommand(),
-                  rpc.getRpcOptionsBuilder(ResponseMode.SYNCHRONOUS)
-                        .timeout(getOwningTask().timeout(), TimeUnit.MILLISECONDS).build(), future);
+            CompletableFuture<Map<Address, Response>> remoteFuture = rpc.invokeRemotelyAsync(
+                  Collections.singletonList(getExecutionTarget()), getCommand(), rpc.getRpcOptionsBuilder(
+                        ResponseMode.SYNCHRONOUS).timeout(getOwningTask().timeout(), TimeUnit.MILLISECONDS)
+                        .build());
+            future = remoteFuture;
          } catch (Throwable e) {
             log.remoteExecutionFailed(getExecutionTarget(), e);
          }
@@ -1009,6 +991,7 @@ public class DefaultExecutorService extends AbstractExecutorService implements D
          return future.isDone();
       }
 
+      @Override
       protected V getResult(long timeoutNanos) throws Exception {
          if (timeoutNanos > 0) {
             return retrieveResult(future.get(timeoutNanos, TimeUnit.NANOSECONDS));
@@ -1034,6 +1017,8 @@ public class DefaultExecutorService extends AbstractExecutorService implements D
                Response value = e.getValue();
                if (value instanceof SuccessfulResponse) {
                   result = (V) ((SuccessfulResponse) value).getResponseValue();
+               } else {
+                  throw new ExecutionException(new Exception(value != null ? value.toString() : "Unknown cause"));
                }
             }
          } else {
@@ -1046,12 +1031,9 @@ public class DefaultExecutorService extends AbstractExecutorService implements D
 
       @Override
       public NotifyingFuture<V> attachListener(final FutureListener<V> listener) {
-         future.attachListener(new FutureListener<Object>() {
-               @Override
-               public void futureDone(Future<Object> future) {
-                  listener.futureDone(RemoteDistributedTaskPart.this);
-               }
-            });
+         future.whenComplete((value, throwable) -> {
+            listener.futureDone(this);
+         });
          return this;
       }
    }
@@ -1101,6 +1083,7 @@ public class DefaultExecutorService extends AbstractExecutorService implements D
          return getAddress();
       }
 
+      @Override
       public void execute() {
          log.debugf("Sending %s to self", this);
          try {

@@ -42,6 +42,8 @@ public class CacheJmxRegistration extends AbstractJmxRegistration {
    private Set<Component> nonCacheComponents;
    private boolean needToUnregister = false;
 
+   private volatile boolean unregisterCacheMBean;
+
    @Inject
    public void initialize(Cache<?, ?> cache, GlobalConfiguration globalConfig) {
       this.cache = cache.getAdvancedCache();
@@ -87,6 +89,10 @@ public class CacheJmxRegistration extends AbstractJmxRegistration {
          }
       }
 
+      // If removing cache, also remove cache MBean
+      if (unregisterCacheMBean)
+         unregisterCacheMBean();
+
       // make sure we don't set cache to null, in case it needs to be restarted via JMX.
    }
 
@@ -110,6 +116,9 @@ public class CacheJmxRegistration extends AbstractJmxRegistration {
       }
    }
 
+   public void setUnregisterCacheMBean(boolean unregisterCacheMBean) {
+      this.unregisterCacheMBean = unregisterCacheMBean;
+   }
 
    @Override
    protected ComponentsJmxRegistration buildRegistrar(Set<AbstractComponentRegistry.Component> components) {
@@ -133,8 +142,7 @@ public class CacheJmxRegistration extends AbstractJmxRegistration {
          synchronized (managerJmxReg) {
             if (managerJmxReg.jmxDomain == null) {
                if (!tmpJmxDomain.equals(globalConfig.globalJmxStatistics().domain()) && !globalConfig.globalJmxStatistics().allowDuplicateDomains()) {
-                  log.cacheManagerAlreadyRegistered(globalConfig.globalJmxStatistics().domain());
-                  throw new JmxDomainConflictException(String.format("Domain already registered %s", globalConfig.globalJmxStatistics().domain()));
+                  throw log.jmxMBeanAlreadyRegistered(tmpJmxDomain, globalConfig.globalJmxStatistics().domain());
                }
                // Set manager component's jmx domain so that other caches under same manager
                // can see it, particularly important when jmx is only enabled at the cache level

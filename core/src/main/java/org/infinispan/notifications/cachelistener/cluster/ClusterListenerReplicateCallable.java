@@ -3,17 +3,17 @@ package org.infinispan.notifications.cachelistener.cluster;
 import org.infinispan.Cache;
 import org.infinispan.commons.marshall.AbstractExternalizer;
 import org.infinispan.commons.util.Util;
-import org.infinispan.distexec.DefaultExecutorService;
 import org.infinispan.distexec.DistributedCallable;
 import org.infinispan.distexec.DistributedExecutorService;
+import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.marshall.core.Ids;
-import org.infinispan.filter.Converter;
-import org.infinispan.filter.KeyValueFilter;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
+import org.infinispan.notifications.cachelistener.filter.CacheEventConverter;
+import org.infinispan.notifications.cachelistener.filter.CacheEventFilter;
+import org.infinispan.notifications.cachelistener.filter.CacheEventFilterConverter;
 import org.infinispan.notifications.cachemanagerlistener.CacheManagerNotifier;
 import org.infinispan.remoting.transport.Address;
-import org.infinispan.util.concurrent.WithinThreadExecutor;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 
@@ -39,28 +39,39 @@ public class ClusterListenerReplicateCallable<K, V> implements DistributedCallab
    private transient CacheManagerNotifier cacheManagerNotifier;
    private transient DistributedExecutorService distExecutor;
    private transient Address ourAddress;
+   private transient ClusterEventManager<K, V> eventManager;
 
    private final UUID identifier;
-   private final KeyValueFilter<K, V> filter;
-   private final Converter<K, V, ?> converter;
+   private final CacheEventFilter<K, V> filter;
+   private final CacheEventConverter<K, V, ?> converter;
    private final Address origin;
+   private final boolean sync;
 
-   public ClusterListenerReplicateCallable(UUID identifier, Address origin, KeyValueFilter<K, V> filter,
-                                           Converter<K, V, ?> converter) {
+   public ClusterListenerReplicateCallable(UUID identifier, Address origin, CacheEventFilter<K, V> filter,
+                                           CacheEventConverter<K, V, ?> converter, boolean sync) {
       this.identifier = identifier;
       this.origin = origin;
       this.filter = filter;
       this.converter = converter;
+      this.sync = sync;
    }
 
    @Override
    public void setEnvironment(Cache<K, V> cache, Set<K> inputKeys) {
       cacheManager = cache.getCacheManager();
-      cacheNotifier = cache.getAdvancedCache().getComponentRegistry().getComponent(CacheNotifier.class);
+      ComponentRegistry componentRegistry = cache.getAdvancedCache().getComponentRegistry();
+      cacheNotifier = componentRegistry.getComponent(CacheNotifier.class);
       cacheManagerNotifier = cache.getCacheManager().getGlobalComponentRegistry().getComponent(
             CacheManagerNotifier.class);
-      distExecutor = new DefaultExecutorService(cache, new WithinThreadExecutor());
+      distExecutor = SecurityActions.getDefaultExecutorService(cache);
       ourAddress = cache.getCacheManager().getAddress();
+      eventManager = componentRegistry.getComponent(ClusterEventManager.class);
+      if (filter != null) {
+         componentRegistry.wireDependencies(filter);
+      }
+      if (converter != null && converter != filter) {
+         componentRegistry.wireDependencies(converter);
+      }
    }
 
    @Override
@@ -83,7 +94,7 @@ public class ClusterListenerReplicateCallable<K, V> implements DistributedCallab
                }
                if (!alreadyInstalled) {
                   RemoteClusterListener listener = new RemoteClusterListener(identifier, origin, distExecutor, cacheNotifier,
-                                                                           cacheManagerNotifier);
+                                                                             cacheManagerNotifier, eventManager, sync);
                   cacheNotifier.addListener(listener, filter, converter);
                   cacheManagerNotifier.addListener(listener);
                   // It is possible the member is now gone after registered, if so we have to remove just to be sure
@@ -123,13 +134,29 @@ public class ClusterListenerReplicateCallable<K, V> implements DistributedCallab
          output.writeObject(object.identifier);
          output.writeObject(object.origin);
          output.writeObject(object.filter);
-         output.writeObject(object.converter);
+         if (object.filter == object.converter && object.filter instanceof CacheEventFilterConverter) {
+            output.writeBoolean(true);
+         } else {
+            output.writeBoolean(false);
+            output.writeObject(object.converter);
+         }
+         output.writeBoolean(object.sync);
       }
 
       @Override
       public ClusterListenerReplicateCallable readObject(ObjectInput input) throws IOException, ClassNotFoundException {
-         return new ClusterListenerReplicateCallable((UUID)input.readObject(), (Address)input.readObject(),
-                                                     (KeyValueFilter)input.readObject(), (Converter)input.readObject());
+         UUID id = (UUID)input.readObject();
+         Address address = (Address)input.readObject();
+         CacheEventFilter filter = (CacheEventFilter)input.readObject();
+         boolean sameConverter = input.readBoolean();
+         CacheEventConverter converter;
+         if (sameConverter) {
+            converter = (CacheEventFilterConverter)filter;
+         } else {
+            converter = (CacheEventConverter)input.readObject();
+         }
+         boolean sync = input.readBoolean();
+         return new ClusterListenerReplicateCallable(id, address, filter, converter, sync);
       }
 
       @Override

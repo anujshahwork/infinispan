@@ -19,7 +19,6 @@
         <extension module="org.jboss.as.remoting"/>
         <extension module="org.jboss.as.sar"/>
         <extension module="org.jboss.as.security"/>
-        <extension module="org.jboss.as.threads"/>
         <extension module="org.jboss.as.transactions"/>
         <extension module="org.jboss.as.webservices"/>
         <extension module="org.jboss.as.weld"/>
@@ -118,6 +117,9 @@
             <logger category="jacorb.config">
                 <level name="ERROR"/>
             </logger>
+            <logger category="javax.security">
+                <level name="DEBUG"/>
+            </logger>  
             <root-logger>
                 <level name="INFO"/>
                 <handlers>
@@ -235,7 +237,7 @@
                     <file-store passivation="false" purge="false"/>
                 </local-cache>
             </cache-container>
-            <cache-container name="hibernate" default-cache="local-query" module="org.hibernate">
+            <cache-container name="hibernate" default-cache="local-query" module="org.hibernate.infinispan">
                 <local-cache name="entity">
                     <transaction mode="NON_XA"/>
                     <eviction strategy="LRU" max-entries="10000"/>
@@ -323,7 +325,7 @@
                   <authentication>
                      <login-module code="org.jboss.security.auth.spi.LdapLoginModule" flag="required">
                         <module-option name="java.naming.factory.initial" value="com.sun.jndi.ldap.LdapCtxFactory"/>
-                        <module-option name="java.naming.provider.url" value="ldap://localhost:10389"/>
+                        <module-option name="java.naming.provider.url" value="ldap://127.0.0.1:10389"/>
                         <module-option name="java.naming.security.authentication" value="simple"/>
                         <module-option name="principalDNPrefix" value="uid="/>
                         <module-option name="principalDNSuffix" value=",ou=People,dc=infinispan,dc=org"/>
@@ -342,8 +344,44 @@
                             <module-option name="storeKey" value="true"/>
                             <module-option name="useKeyTab" value="true"/>
                             <module-option name="refreshKrb5Config" value="true"/>
-                            <module-option name="principal" value="ldap/localhost@INFINISPAN.ORG"/>
-                            <module-option name="keyTab" value="${basedir}/src/test/resources/keytab/ldap.keytab"/>
+                            <module-option name="principal" value="ldap/127.0.0.1@INFINISPAN.ORG"/>
+                            <module-option name="keyTab" value="${basedir}/src/test/resources/keytab/ldap.127.0.0.1.keytab"/>
+                            <module-option name="doNotPrompt" value="true"/>
+                        </login-module>
+                    </authentication>
+                </security-domain>
+                <security-domain name="krb-node0" cache-type="default">
+                    <authentication>
+                        <login-module code="Kerberos" flag="required">
+                            <module-option name="storeKey" value="true"/>
+                            <module-option name="useKeyTab" value="true"/>
+                            <module-option name="refreshKrb5Config" value="true"/>
+                            <module-option name="principal" value="jgroups/node0/clustered@INFINISPAN.ORG"/>
+                            <module-option name="keyTab" value="${basedir}/src/test/resources/keytab/jgroups_node0_clustered.keytab"/>
+                            <module-option name="doNotPrompt" value="true"/>
+                        </login-module>
+                    </authentication>
+                </security-domain>
+                <security-domain name="krb-node1" cache-type="default">
+                    <authentication>
+                        <login-module code="Kerberos" flag="required">
+                            <module-option name="storeKey" value="true"/>
+                            <module-option name="useKeyTab" value="true"/>
+                            <module-option name="refreshKrb5Config" value="true"/>
+                            <module-option name="principal" value="jgroups/node1/clustered@INFINISPAN.ORG"/>
+                            <module-option name="keyTab" value="${basedir}/src/test/resources/keytab/jgroups_node1_clustered.keytab"/>
+                            <module-option name="doNotPrompt" value="true"/>
+                        </login-module>
+                    </authentication>
+                </security-domain>
+                <security-domain name="krb-node1-fail" cache-type="default">
+                    <authentication>
+                        <login-module code="Kerberos" flag="required">
+                            <module-option name="storeKey" value="true"/>
+                            <module-option name="useKeyTab" value="true"/>
+                            <module-option name="refreshKrb5Config" value="true"/>
+                            <module-option name="principal" value="jgroups/node1/clustered2@INFINISPAN.ORG"/>
+                            <module-option name="keyTab" value="${basedir}/src/test/resources/keytab/admin.keytab"/>
                             <module-option name="doNotPrompt" value="true"/>
                         </login-module>
                     </authentication>
@@ -395,7 +433,7 @@
                             <module-option name="password-stacking" value="useFirstPass"/>
                             <module-option name="bindAuthentication" value="GSSAPI"/>
                             <module-option name="jaasSecurityDomain" value="ldap-service"/>
-                            <module-option name="java.naming.provider.url" value="ldap://localhost:10389"/>
+                            <module-option name="java.naming.provider.url" value="ldap://127.0.0.1:10389"/>
                             <module-option name="baseCtxDN" value="ou=People,dc=infinispan,dc=org"/>
                             <module-option name="baseFilter" value="(krb5PrincipalName={0})"/>
                             <module-option name="rolesCtxDN" value="ou=Roles,dc=infinispan,dc=org"/>
@@ -415,7 +453,7 @@
                             <module-option name="password-stacking" value="useFirstPass"/>
                             <module-option name="bindAuthentication" value="GSSAPI"/>
                             <module-option name="jaasSecurityDomain" value="ldap-service"/>
-                            <module-option name="java.naming.provider.url" value="ldap://localhost:10389"/>
+                            <module-option name="java.naming.provider.url" value="ldap://127.0.0.1:10389"/>
                             <module-option name="baseCtxDN" value="ou=People,dc=infinispan,dc=org"/>
                             <module-option name="baseFilter" value="(krb5PrincipalName={0})"/>
                             <module-option name="rolesCtxDN" value="ou=Roles,dc=infinispan,dc=org"/>
@@ -435,7 +473,7 @@
                             <module-option name="password-stacking" value="useFirstPass"/>
                             <module-option name="bindAuthentication" value="GSSAPI"/>
                             <module-option name="jaasSecurityDomain" value="ldap-service"/>
-                            <module-option name="java.naming.provider.url" value="ldap://localhost:10389"/>
+                            <module-option name="java.naming.provider.url" value="ldap://127.0.0.1:10389"/>
                             <module-option name="baseCtxDN" value="ou=People,dc=infinispan,dc=org"/>
                             <module-option name="baseFilter" value="(krb5PrincipalName={0})"/>
                             <module-option name="rolesCtxDN" value="ou=Roles,dc=infinispan,dc=org"/>
@@ -455,7 +493,7 @@
                             <module-option name="password-stacking" value="useFirstPass"/>
                             <module-option name="bindAuthentication" value="GSSAPI"/>
                             <module-option name="jaasSecurityDomain" value="ldap-service"/>
-                            <module-option name="java.naming.provider.url" value="ldap://localhost:10389"/>
+                            <module-option name="java.naming.provider.url" value="ldap://127.0.0.1:10389"/>
                             <module-option name="baseCtxDN" value="ou=People,dc=infinispan,dc=org"/>
                             <module-option name="baseFilter" value="(krb5PrincipalName={0})"/>
                             <module-option name="rolesCtxDN" value="ou=Roles,dc=infinispan,dc=org"/>

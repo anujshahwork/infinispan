@@ -1,12 +1,12 @@
 package org.infinispan.objectfilter.impl.hql;
 
-import com.google.protobuf.Descriptors;
+import org.hibernate.hql.ast.spi.EntityNamesResolver;
 import org.infinispan.objectfilter.test.model.MarshallerRegistration;
-import org.infinispan.protostream.ConfigurationBuilder;
+import org.infinispan.protostream.config.Configuration;
+import org.infinispan.protostream.DescriptorParserException;
 import org.infinispan.protostream.ProtobufUtil;
 import org.infinispan.protostream.SerializationContext;
 import org.infinispan.protostream.descriptors.Descriptor;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -21,10 +21,12 @@ import static org.junit.Assert.assertNotNull;
 public class ProtobufParsingTest extends AbstractParsingTest {
 
    @Override
-   protected FilterProcessingChain<Descriptor> createFilterProcessingChain() throws IOException, Descriptors.DescriptorValidationException {
-      SerializationContext serCtx = ProtobufUtil.newSerializationContext(new ConfigurationBuilder().build());
+   protected FilterProcessingChain<Descriptor> createFilterProcessingChain() throws IOException, DescriptorParserException {
+      SerializationContext serCtx = ProtobufUtil.newSerializationContext(new Configuration.Builder().build());
       MarshallerRegistration.registerMarshallers(serCtx);
-      return FilterProcessingChain.build(new ProtobufPropertyHelper(serCtx), null);
+      EntityNamesResolver entityNamesResolver = new ProtobufEntityNamesResolver(serCtx);
+      ProtobufPropertyHelper protobufPropertyHelper = new ProtobufPropertyHelper(entityNamesResolver, serCtx);
+      return FilterProcessingChain.build(entityNamesResolver, protobufPropertyHelper, null);
    }
 
    @Test
@@ -32,7 +34,7 @@ public class ProtobufParsingTest extends AbstractParsingTest {
       String jpaQuery = "from org.infinispan.objectfilter.test.model.Person p where p.name is not null";
       FilterParsingResult<Descriptor> result = queryParser.parseQuery(jpaQuery, createFilterProcessingChain());
 
-      assertNotNull(result.getQuery());
+      assertNotNull(result.getWhereClause());
 
       assertEquals("org.infinispan.objectfilter.test.model.Person", result.getTargetEntityName());
       assertEquals("org.infinispan.objectfilter.test.model.Person", result.getTargetEntityMetadata().getFullName());
@@ -46,11 +48,9 @@ public class ProtobufParsingTest extends AbstractParsingTest {
       assertEquals(0, result.getSortFields().size());
    }
 
-   @Ignore("protobuf does not have a Date type")
    @Test
    @Override
    public void testInvalidDateLiteral() throws Exception {
-      // keep this test here just as a reminder
-      super.testInvalidDateLiteral();
+      // protobuf does not have a Date type, but keep this empty test here just as a reminder
    }
 }

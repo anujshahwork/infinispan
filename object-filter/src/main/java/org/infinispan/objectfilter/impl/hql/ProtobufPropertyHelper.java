@@ -1,6 +1,5 @@
 package org.infinispan.objectfilter.impl.hql;
 
-import com.google.protobuf.ByteString;
 import org.hibernate.hql.ast.spi.EntityNamesResolver;
 import org.infinispan.objectfilter.impl.logging.Log;
 import org.infinispan.protostream.SerializationContext;
@@ -23,22 +22,9 @@ public final class ProtobufPropertyHelper extends ObjectPropertyHelper<Descripto
 
    private final SerializationContext serializationContext;
 
-   // the EntityNamesResolver of the hql parser is not nicely designed to handle non-Class type metadata
-   private final EntityNamesResolver entityNamesResolver = new EntityNamesResolver() {
-      @Override
-      public Class<?> getClassFromName(String entityName) {
-         // Here we return a 'fake' class. It does not matter what we return as long as it is non-null
-         return serializationContext.canMarshall(entityName) ? Object.class : null;
-      }
-   };
-
-   public ProtobufPropertyHelper(SerializationContext serializationContext) {
+   public ProtobufPropertyHelper(EntityNamesResolver entityNamesResolver, SerializationContext serializationContext) {
+      super(entityNamesResolver);
       this.serializationContext = serializationContext;
-   }
-
-   @Override
-   public EntityNamesResolver getEntityNamesResolver() {
-      return entityNamesResolver;
    }
 
    @Override
@@ -63,13 +49,19 @@ public final class ProtobufPropertyHelper extends ObjectPropertyHelper<Descripto
          case STRING:
             return String.class;
          case BYTE_STRING:
-            return ByteString.class;
+            return byte[].class;
          case ENUM:
             return Integer.class;
       }
       return null;
    }
 
+   /**
+    * @param entityType
+    * @param propertyPath
+    * @return the field descriptor or null if not found
+    * @throws IllegalStateException if the entity type is unknown
+    */
    private FieldDescriptor getField(String entityType, List<String> propertyPath) {
       Descriptor messageDescriptor;
       try {
@@ -86,6 +78,8 @@ public final class ProtobufPropertyHelper extends ObjectPropertyHelper<Descripto
          }
          if (field.getJavaType() == JavaType.MESSAGE) {
             messageDescriptor = field.getMessageType();
+         } else {
+            break;
          }
       }
       return null;
@@ -140,6 +134,31 @@ public final class ProtobufPropertyHelper extends ObjectPropertyHelper<Descripto
    }
 
    @Override
+   public boolean isRepeatedProperty(String entityType, List<String> propertyPath) {
+      Descriptor messageDescriptor;
+      try {
+         messageDescriptor = serializationContext.getMessageDescriptor(entityType);
+      } catch (Exception e) {
+         throw new IllegalStateException("Unknown entity name " + entityType);
+      }
+
+      for (String p : propertyPath) {
+         FieldDescriptor field = messageDescriptor.findFieldByName(p);
+         if (field == null) {
+            break;
+         }
+         if (field.isRepeated()) {
+            return true;
+         }
+         if (field.getJavaType() != JavaType.MESSAGE) {
+            break;
+         }
+         messageDescriptor = field.getMessageType();
+      }
+      return false;
+   }
+
+   @Override
    public Object convertToPropertyType(String entityType, List<String> propertyPath, String value) {
       FieldDescriptor field = getField(entityType, propertyPath);
 
@@ -151,7 +170,7 @@ public final class ProtobufPropertyHelper extends ObjectPropertyHelper<Descripto
             return super.convertToPropertyType(entityType, propertyPath, value);
          }
       } else if (field.getJavaType() == JavaType.ENUM) {
-         EnumDescriptor enumType = field.getEnumDescriptor();
+         EnumDescriptor enumType = field.getEnumType();
          EnumValueDescriptor enumValue;
          try {
             enumValue = enumType.findValueByNumber(Integer.parseInt(value));

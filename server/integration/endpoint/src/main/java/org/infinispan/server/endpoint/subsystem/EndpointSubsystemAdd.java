@@ -18,12 +18,28 @@
  */
 package org.infinispan.server.endpoint.subsystem;
 
+import static org.infinispan.server.endpoint.subsystem.ModelKeys.HOTROD_CONNECTOR;
+import static org.infinispan.server.endpoint.subsystem.ModelKeys.MEMCACHED_CONNECTOR;
+import static org.infinispan.server.endpoint.subsystem.ModelKeys.REST_CONNECTOR;
+
+import org.infinispan.server.endpoint.Constants;
+import org.infinispan.server.endpoint.deployments.ConverterFactoryExtensionProcessor;
+import org.infinispan.server.endpoint.deployments.FilterConverterFactoryExtensionProcessor;
+import org.infinispan.server.endpoint.deployments.FilterFactoryExtensionProcessor;
+import org.infinispan.server.endpoint.deployments.KeyValueFilterConverterExtensionProcessor;
+import org.infinispan.server.endpoint.deployments.MarshallerExtensionProcessor;
+import org.infinispan.server.endpoint.deployments.ServerExtensionDependenciesProcessor;
 import org.jboss.as.controller.AbstractAddStepHandler;
+import org.jboss.as.controller.OperationContext;
 import org.jboss.as.controller.OperationFailedException;
 import org.jboss.as.controller.descriptions.ModelDescriptionConstants;
 import org.jboss.as.controller.operations.common.Util;
+import org.jboss.as.server.AbstractDeploymentChainStep;
+import org.jboss.as.server.DeploymentProcessorTarget;
+import org.jboss.as.server.deployment.Phase;
 import org.jboss.dmr.ModelNode;
-import static org.infinispan.server.endpoint.subsystem.ModelKeys.*;
+import org.jboss.msc.service.ServiceBuilder;
+import org.jboss.msc.service.ServiceName;
 
 /**
  * @author <a href="http://gleamynode.net/">Trustin Lee</a>
@@ -31,28 +47,56 @@ import static org.infinispan.server.endpoint.subsystem.ModelKeys.*;
  */
 class EndpointSubsystemAdd extends AbstractAddStepHandler {
 
-   static final EndpointSubsystemAdd INSTANCE = new EndpointSubsystemAdd();
-   private static final String[] CONNECTORS = { HOTROD_CONNECTOR, MEMCACHED_CONNECTOR, REST_CONNECTOR };
+    static final EndpointSubsystemAdd INSTANCE = new EndpointSubsystemAdd();
+    private static final String[] CONNECTORS = {HOTROD_CONNECTOR, MEMCACHED_CONNECTOR, REST_CONNECTOR};
 
-   static ModelNode createOperation(ModelNode address, ModelNode existing) {
-      ModelNode operation = Util.getEmptyOperation(ModelDescriptionConstants.ADD, address);
-      populate(existing, operation);
-      return operation;
-   }
+    static ModelNode createOperation(ModelNode address, ModelNode existing) {
+        ModelNode operation = Util.getEmptyOperation(ModelDescriptionConstants.ADD, address);
+        populate(existing, operation);
+        return operation;
+    }
 
-   private static void populate(ModelNode source, ModelNode target) {
-      for(String connectorType : CONNECTORS) {
-         target.get(connectorType).setEmptyObject();
-      }
-   }
+    private static void populate(ModelNode source, ModelNode target) {
+        for (String connectorType : CONNECTORS) {
+            target.get(connectorType).setEmptyObject();
+        }
+    }
 
-   @Override
-   protected void populateModel(ModelNode source, ModelNode target) throws OperationFailedException {
-      populate(source, target);
-   }
+    @Override
+    protected void populateModel(ModelNode source, ModelNode target) throws OperationFailedException {
+        populate(source, target);
+    }
 
-   @Override
-   protected boolean requiresRuntimeVerification() {
-      return false;
-   }
+    @Override
+    protected boolean requiresRuntimeVerification() {
+        return false;
+    }
+
+    @Override
+    protected void performRuntime(OperationContext ctx, ModelNode operation, ModelNode model) throws OperationFailedException {
+        final ServiceName serviceName = Constants.EXTENSION_MANAGER_NAME;
+        ExtensionManagerService service = new ExtensionManagerService();
+        ServiceBuilder<?> builder = ctx.getServiceTarget().addService(serviceName, service);
+
+        ctx.addStep(new AbstractDeploymentChainStep() {
+            @Override
+            protected void execute(DeploymentProcessorTarget processorTarget) {
+            processorTarget.addDeploymentProcessor(Constants.SUBSYSTEM_NAME,
+                Phase.INSTALL, Constants.INSTALL_FILTER_FACTORY, new FilterFactoryExtensionProcessor(serviceName));
+            processorTarget.addDeploymentProcessor(Constants.SUBSYSTEM_NAME,
+                Phase.INSTALL, Constants.INSTALL_CONVERTER_FACTORY, new ConverterFactoryExtensionProcessor(serviceName));
+            processorTarget.addDeploymentProcessor(Constants.SUBSYSTEM_NAME,
+                Phase.INSTALL, Constants.INSTALL_FILTER_CONVERTER_FACTORY, new FilterConverterFactoryExtensionProcessor(serviceName));
+            processorTarget.addDeploymentProcessor(Constants.SUBSYSTEM_NAME,
+                Phase.INSTALL, Constants.INSTALL_KEY_VALUE_FILTER_CONVERTER_FACTORY, new KeyValueFilterConverterExtensionProcessor(serviceName));
+            processorTarget.addDeploymentProcessor(Constants.SUBSYSTEM_NAME,
+                Phase.INSTALL, Constants.INSTALL_MARSHALLER, new MarshallerExtensionProcessor(serviceName));
+            processorTarget.addDeploymentProcessor(Constants.SUBSYSTEM_NAME,
+                Phase.DEPENDENCIES, Constants.DEPENDENCIES, new ServerExtensionDependenciesProcessor());
+            }
+        }, OperationContext.Stage.RUNTIME);
+
+        builder.install();
+    }
+
 }

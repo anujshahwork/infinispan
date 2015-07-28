@@ -1,5 +1,7 @@
 package org.infinispan.container;
 
+import org.infinispan.commands.write.PutKeyValueCommand;
+import org.infinispan.commands.write.PutMapCommand;
 import org.infinispan.configuration.cache.VersioningScheme;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.metadata.Metadata;
@@ -260,16 +262,34 @@ public class EntryFactoryImpl implements EntryFactory {
 
    private InternalCacheEntry getFromContainer(Object key, boolean forceFetch) {
       final boolean isLocal = distributionManager == null || distributionManager.getLocality(key).isLocal();
-      final InternalCacheEntry ice = isL1Enabled || isLocal || forceFetch ? container.get(key) : null;
-      if (trace) log.tracef("Retrieved from container %s (isL1Enabled=%s, isLocal=%s)", ice, isL1Enabled, isLocal);
-      return ice;
+      if (isLocal || forceFetch) {
+         final InternalCacheEntry ice = container.get(key);
+         if (trace) log.tracef("Retrieved from container %s (forceFetch=%s, isLocal=%s)", ice, forceFetch, isLocal);
+         return ice;
+      } else if (isL1Enabled) {
+         final InternalCacheEntry ice = container.get(key);
+         final boolean isL1Entry = ice != null && ice.isL1Entry();
+         if (trace) log.tracef("Retrieved from container %s (L1 is enabled, isL1Entry=%s)", ice, isL1Entry);
+         return isL1Entry ? ice : null;
+      }
+      if (trace) log.trace("Didn't retrieve from container.");
+      return null;
    }
 
    private MVCCEntry newMvccEntryForPut(
          InvocationContext ctx, Object key, FlagAffectedCommand cmd, Metadata providedMetadata, boolean skipRead) {
       MVCCEntry mvccEntry;
       if (trace) log.trace("Creating new entry.");
-      notifier.notifyCacheEntryCreated(key, null, true, ctx, cmd);
+      Object newValue;
+      if (cmd instanceof PutKeyValueCommand) {
+         newValue = ((PutKeyValueCommand)cmd).getValue();
+      } else if (cmd instanceof PutMapCommand) {
+         newValue = ((PutMapCommand)cmd).getMap().get(key);
+      } else {
+         newValue = null;
+      }
+
+      notifier.notifyCacheEntryCreated(key, newValue, true, ctx, cmd);
       mvccEntry = createWrappedEntry(key, null, ctx, providedMetadata, true, false, skipRead);
       mvccEntry.setCreated(true);
       ctx.putLookedUpEntry(key, mvccEntry);
@@ -340,7 +360,13 @@ public class EntryFactoryImpl implements EntryFactory {
    }
    
    private DeltaAwareCacheEntry createWrappedDeltaEntry(Object key, DeltaAware deltaAware, CacheEntry entry) {
-      return new DeltaAwareCacheEntry(key,deltaAware, entry);
+      DeltaAwareCacheEntry deltaAwareCacheEntry = new DeltaAwareCacheEntry(key,deltaAware, entry);
+      // Set the delta aware entry to created so it ignores the previous value and only merges new deltas when it is
+      // committed
+      if (entry != null && entry.isCreated()) {
+         deltaAwareCacheEntry.setCreated(true);
+      }
+      return deltaAwareCacheEntry;
    }
 
    private void updateMetadata(MVCCEntry entry, Metadata providedMetadata) {

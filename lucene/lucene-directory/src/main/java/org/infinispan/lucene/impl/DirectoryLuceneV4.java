@@ -2,6 +2,7 @@ package org.infinispan.lucene.impl;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.concurrent.Executor;
 
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
@@ -14,7 +15,7 @@ import org.infinispan.lucene.readlocks.SegmentReadLocker;
 
 /**
  * Directory implementation for Apache Lucene.
- * Meant to be compatible with the versions from 4.0 to 4.8.
+ * Meant to be compatible with versions 4.0+
  *
  * @since 5.2
  * @author Sanne Grinovero
@@ -27,6 +28,7 @@ class DirectoryLuceneV4 extends Directory implements DirectoryExtensions {
 
    // indexName is used to be able to store multiple named indexes in the same caches
    private final String indexName;
+   private final Executor deleteExecutor;
 
    private volatile LockFactory lockFactory;
 
@@ -37,9 +39,12 @@ class DirectoryLuceneV4 extends Directory implements DirectoryExtensions {
     * @param lf the LockFactory to be used by IndexWriters. @see org.infinispan.lucene.locking
     * @param chunkSize segments are fragmented in chunkSize bytes; larger values are more efficient for searching but less for distribution and network replication
     * @param readLocker @see org.infinispan.lucene.readlocks for some implementations; you might be able to provide more efficient implementations by controlling the IndexReader's lifecycle.
+    * @param fileListUpdatedAsync When true, the writes to the list of currently existing files in the Directory will use the putAsync method rather than put.
+    * @param deleteExecutor The Executor to run file deletes in the background
     */
-   public DirectoryLuceneV4(Cache<?, ?> metadataCache, Cache<?, ?> chunksCache, String indexName, LockFactory lf, int chunkSize, SegmentReadLocker readLocker) {
-      this.impl = new DirectoryImplementor(metadataCache, chunksCache, indexName, chunkSize, readLocker);
+   public DirectoryLuceneV4(Cache<?, ?> metadataCache, Cache<?, ?> chunksCache, String indexName, LockFactory lf, int chunkSize, SegmentReadLocker readLocker, boolean fileListUpdatedAsync, Executor deleteExecutor) {
+      this.deleteExecutor = deleteExecutor;
+      this.impl = new DirectoryImplementor(metadataCache, chunksCache, indexName, chunkSize, readLocker, fileListUpdatedAsync);
       this.indexName = indexName;
       this.lockFactory = lf;
       this.lockFactory.setLockPrefix(this.getLockID());
@@ -60,7 +65,7 @@ class DirectoryLuceneV4 extends Directory implements DirectoryExtensions {
    @Override
    public void deleteFile(final String name) {
       ensureOpen();
-      impl.deleteFile(name);
+      deleteExecutor.execute(new DeleteTask(name));
    }
 
    /**
@@ -94,11 +99,10 @@ class DirectoryLuceneV4 extends Directory implements DirectoryExtensions {
    @Override
    public IndexInput openInput(final String name, final IOContext context) throws IOException {
       final IndexInputContext indexInputContext = impl.openInput(name);
-      if ( indexInputContext.readLocks == null ) {
+      if (indexInputContext.readLocks == null) {
          return new SingleChunkIndexInput(indexInputContext);
-      }
-      else {
-         return new InfinispanIndexInputV4(indexInputContext);
+      } else {
+         return new InfinispanIndexInput(indexInputContext);
       }
    }
 
@@ -128,7 +132,7 @@ class DirectoryLuceneV4 extends Directory implements DirectoryExtensions {
     */
    @Override
    public String getIndexName() {
-       return indexName;
+      return indexName;
    }
 
    /**
@@ -139,22 +143,22 @@ class DirectoryLuceneV4 extends Directory implements DirectoryExtensions {
       //This implementation is always in sync with the storage, so NOOP is fine
    }
 
-   //@Override New method since Lucene 4.6
+   @Override
    public void clearLock(String lockName) throws IOException {
       lockFactory.clearLock(lockName);
    }
 
-   //@Override New method since Lucene 4.6
+   @Override
    public LockFactory getLockFactory() {
       return lockFactory;
    }
 
-   //@Override New method since Lucene 4.6
+   @Override
    public Lock makeLock(String lockName) {
       return lockFactory.makeLock(lockName);
    }
 
-   //@Override New method since Lucene 4.6
+   @Override
    public void setLockFactory(LockFactory lockFactory) throws IOException {
       this.lockFactory = lockFactory;
    }
@@ -172,6 +176,24 @@ class DirectoryLuceneV4 extends Directory implements DirectoryExtensions {
    @Override
    public Cache getDataCache() {
       return impl.getDataCache();
+   }
+
+   final class DeleteTask implements Runnable {
+
+      private final String fileName;
+
+      private DeleteTask(String fileName) {
+         this.fileName = fileName;
+      }
+
+      public String getFileName() {
+         return fileName;
+      }
+
+      @Override
+      public void run() {
+         impl.deleteFile(fileName);
+      }
    }
 
 }

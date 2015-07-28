@@ -1,6 +1,7 @@
 package org.infinispan.commands.write;
 
 import org.infinispan.atomic.CopyableDeltaAware;
+import org.infinispan.commands.CommandInvocationId;
 import org.infinispan.commons.equivalence.Equivalence;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.metadata.Metadata;
@@ -40,8 +41,8 @@ public class PutKeyValueCommand extends AbstractDataWriteCommand implements Meta
 
    public PutKeyValueCommand(Object key, Object value, boolean putIfAbsent,
                              CacheNotifier notifier, Metadata metadata, Set<Flag> flags,
-                             Equivalence valueEquivalence) {
-      super(key, flags);
+                             Equivalence valueEquivalence, CommandInvocationId commandInvocationId) {
+      super(key, flags, commandInvocationId);
       setValue(value);
       this.putIfAbsent = putIfAbsent;
       this.valueMatcher = putIfAbsent ? ValueMatcher.MATCH_EXPECTED : ValueMatcher.MATCH_ALWAYS;
@@ -102,7 +103,7 @@ public class PutKeyValueCommand extends AbstractDataWriteCommand implements Meta
 
    @Override
    public Object[] getParameters() {
-      return new Object[]{key, value, metadata, putIfAbsent, valueMatcher, Flag.copyWithoutRemotableFlags(flags)};
+      return new Object[]{key, value, metadata, putIfAbsent, valueMatcher, Flag.copyWithoutRemotableFlags(flags), commandInvocationId};
    }
 
    @Override
@@ -115,6 +116,7 @@ public class PutKeyValueCommand extends AbstractDataWriteCommand implements Meta
       putIfAbsent = (Boolean) parameters[3];
       valueMatcher = (ValueMatcher) parameters[4];
       flags = (Set<Flag>) parameters[5];
+      commandInvocationId = (CommandInvocationId) parameters[6];
    }
 
    @Override
@@ -207,24 +209,31 @@ public class PutKeyValueCommand extends AbstractDataWriteCommand implements Meta
       Object o;
 
       if (!e.isCreated()) {
-         notifier.notifyCacheEntryModified(
-               key, entryValue, entryValue == null, true, ctx, this);
+         notifier.notifyCacheEntryModified(key, value, entryValue, e.getMetadata(), true, ctx, this);
       }
 
       if (value instanceof Delta) {
          // magic
          Delta dv = (Delta) value;
-         DeltaAware toMergeWith = null;
-         if (entryValue instanceof CopyableDeltaAware) {
-            toMergeWith = ((CopyableDeltaAware) entryValue).copy();
-         } else if (entryValue instanceof DeltaAware) {
-            toMergeWith = (DeltaAware) entryValue;
+         if (e.isRemoved()) {
+            e.setRemoved(false);
+            e.setCreated(true);
+            e.setValid(true);
+            e.setValue(dv.merge(null));
+         } else {
+            DeltaAware toMergeWith = null;
+            if (entryValue instanceof CopyableDeltaAware) {
+               toMergeWith = ((CopyableDeltaAware) entryValue).copy();
+            } else if (entryValue instanceof DeltaAware) {
+               toMergeWith = (DeltaAware) entryValue;
+            }
+            e.setValue(dv.merge(toMergeWith));
          }
-         e.setValue(dv.merge(toMergeWith));
          o = entryValue;
       } else {
          o = e.setValue(value);
          if (e.isRemoved()) {
+            e.setCreated(true);
             e.setRemoved(false);
             e.setValid(true);
             o = null;

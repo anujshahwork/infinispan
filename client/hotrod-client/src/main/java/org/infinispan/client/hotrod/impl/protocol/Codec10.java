@@ -8,10 +8,12 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.infinispan.client.hotrod.Flag;
+import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.event.ClientEvent;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.exceptions.InvalidResponseException;
@@ -21,6 +23,7 @@ import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.util.Either;
+import org.infinispan.commons.util.Util;
 
 /**
  * A Hot Rod encoder/decoder for version 1.0 of the protocol.
@@ -37,6 +40,26 @@ public class Codec10 implements Codec {
    @Override
    public HeaderParams writeHeader(Transport transport, HeaderParams params) {
       return writeHeader(transport, params, HotRodConstants.VERSION_10);
+   }
+
+   @Override
+   public void writeClientListenerParams(Transport transport, ClientListener clientListener,
+         byte[][] filterFactoryParams, byte[][] converterFactoryParams) {
+      // No-op
+   }
+
+   @Override
+   public void writeExpirationParams(Transport transport, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit) {
+      if (!CodecUtils.isIntCompatible(lifespan)) {
+         log.warn("Lifespan value greater than the max supported size (Integer.MAX_VALUE), this can cause precision loss");
+      }
+      if (!CodecUtils.isIntCompatible(maxIdle)) {
+         log.warn("MaxIdle value greater than the max supported size (Integer.MAX_VALUE), this can cause precision loss");
+      }
+      int lifespanSeconds = CodecUtils.toSeconds(lifespan, lifespanTimeUnit);
+      int maxIdleSeconds = CodecUtils.toSeconds(maxIdle, maxIdleTimeUnit);
+      transport.writeVInt(lifespanSeconds);
+      transport.writeVInt(maxIdleSeconds);
    }
 
    protected HeaderParams writeHeader(
@@ -121,6 +144,26 @@ public class Codec10 implements Codec {
    }
 
    @Override
+   public byte[] returnPossiblePrevValue(Transport transport, short status, Flag[] flags) {
+      if (hasForceReturn(flags)) {
+         byte[] bytes = transport.readArray();
+         if (log.isTraceEnabled()) log.tracef("Previous value bytes is: %s", Util.printArray(bytes, false));
+         //0-length response means null
+         return bytes.length == 0 ? null : bytes;
+      } else {
+         return null;
+      }
+   }
+
+   private boolean hasForceReturn(Flag[] flags) {
+      if (flags == null) return false;
+      for (Flag flag : flags) {
+         if (flag == Flag.FORCE_RETURN_VALUE) return true;
+      }
+      return false;
+   }
+
+   @Override
    public Log getLog() {
       return log;
    }
@@ -199,7 +242,7 @@ public class Codec10 implements Codec {
          localLog.newTopology(transport.getRemoteSocketAddress(), newTopologyId,
                socketAddresses.size(), socketAddresses);
       }
-      transport.getTransportFactory().updateServers(socketAddresses, cacheName);
+      transport.getTransportFactory().updateServers(socketAddresses, cacheName, false);
       if (hashFunctionVersion == 0) {
          localLog.trace("Not using a consistent hash function (hash function version == 0).");
       } else {

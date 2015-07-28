@@ -3,6 +3,7 @@ package org.infinispan.statetransfer;
 import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 
 import org.infinispan.Cache;
 import org.infinispan.commands.ReplicableCommand;
@@ -10,6 +11,7 @@ import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.global.GlobalConfigurationBuilder;
+import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.responses.Response;
 import org.infinispan.remoting.rpc.ResponseFilter;
 import org.infinispan.remoting.rpc.ResponseMode;
@@ -47,8 +49,12 @@ public class StateTransferRestartTest extends MultipleCacheManagersTest {
       volatile Callable<Void> callOnStateResponseCommand;
 
       @Override
-      public Map<Address, Response> invokeRemotely(Collection<Address> recipients, ReplicableCommand rpcCommand, ResponseMode mode, long timeout,
-                                                   boolean usePriorityQueue, ResponseFilter responseFilter, boolean totalOrder, boolean anycast) throws Exception {
+      public CompletableFuture<Map<Address, Response>> invokeRemotelyAsync(Collection<Address> recipients,
+                                                                           ReplicableCommand rpcCommand,
+                                                                           ResponseMode mode, long timeout,
+                                                                           ResponseFilter responseFilter,
+                                                                           DeliverOrder deliverOrder,
+                                                                           boolean anycast) throws Exception {
          if (callOnStateResponseCommand != null && rpcCommand.getClass() == StateResponseCommand.class) {
             log.trace("Ignoring StateResponseCommand");
             try {
@@ -56,9 +62,9 @@ public class StateTransferRestartTest extends MultipleCacheManagersTest {
             } catch (Exception e) {
                log.error("Error in callOnStateResponseCommand", e);
             }
-            return InfinispanCollections.emptyMap();
+            return CompletableFuture.completedFuture(InfinispanCollections.emptyMap());
          }
-         return super.invokeRemotely(recipients, rpcCommand, mode, timeout, usePriorityQueue, responseFilter, totalOrder, anycast);
+         return super.invokeRemotelyAsync(recipients, rpcCommand, mode, timeout, responseFilter, deliverOrder, anycast);
       }
    }
 

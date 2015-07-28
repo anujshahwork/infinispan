@@ -4,6 +4,7 @@ import org.infinispan.Cache;
 import org.infinispan.commands.CommandsFactory;
 import org.infinispan.commands.ReplicableCommand;
 import org.infinispan.commons.hash.MurmurHash3;
+import org.infinispan.commons.util.concurrent.NotifyingNotifiableFuture;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
@@ -17,7 +18,7 @@ import org.infinispan.distribution.ch.impl.DefaultConsistentHash;
 import org.infinispan.distribution.ch.impl.DefaultConsistentHashFactory;
 import org.infinispan.notifications.cachelistener.cluster.ClusterCacheNotifier;
 import org.infinispan.persistence.manager.PersistenceManager;
-import org.infinispan.notifications.cachelistener.CacheNotifier;
+import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.responses.Response;
 import org.infinispan.remoting.rpc.ResponseMode;
 import org.infinispan.remoting.rpc.RpcManager;
@@ -30,21 +31,38 @@ import org.infinispan.transaction.impl.LocalTransaction;
 import org.infinispan.transaction.impl.RemoteTransaction;
 import org.infinispan.transaction.impl.TransactionTable;
 import org.infinispan.util.concurrent.IsolationLevel;
-import org.infinispan.commons.util.concurrent.NotifyingNotifiableFuture;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
-import org.testng.annotations.AfterTest;
 import org.testng.annotations.BeforeTest;
 import org.testng.annotations.Test;
 
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.Matchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Test for StateProviderImpl.
@@ -132,7 +150,7 @@ public class StateProviderTest {
 
       // create CHes
       DefaultConsistentHashFactory chf = new DefaultConsistentHashFactory();
-      DefaultConsistentHash ch1 = chf.create(new MurmurHash3(), 2, numSegments, members1, null);
+      DefaultConsistentHash ch1 = chf.create(MurmurHash3.getInstance(), 2, numSegments, members1, null);
       DefaultConsistentHash ch2 = chf.updateMembers(ch1, members2, null);
 
       // create dependencies
@@ -148,7 +166,7 @@ public class StateProviderTest {
          @Override
          public RpcOptionsBuilder answer(InvocationOnMock invocation) {
             Object[] args = invocation.getArguments();
-            return new RpcOptionsBuilder(10000, TimeUnit.MILLISECONDS, (ResponseMode) args[0], true);
+            return new RpcOptionsBuilder(10000, TimeUnit.MILLISECONDS, (ResponseMode) args[0], DeliverOrder.PER_SENDER);
          }
       });
 
@@ -172,7 +190,7 @@ public class StateProviderTest {
       when(transactionTable.getLocalTransactions()).thenReturn(Collections.<LocalTransaction>emptyList());
       when(transactionTable.getRemoteTransactions()).thenReturn(Collections.<RemoteTransaction>emptyList());
 
-      cacheTopology = new CacheTopology(1, ch1, ch1, ch1);
+      cacheTopology = new CacheTopology(1, 1, ch1, ch1, ch1, ch1.getMembers());
       stateProvider.onTopologyUpdate(cacheTopology, false);
 
       log.debug("ch1: " + ch1);
@@ -194,7 +212,7 @@ public class StateProviderTest {
       assertTrue(stateProvider.isStateTransferInProgress());
 
       log.debug("ch2: " + ch2);
-      cacheTopology = new CacheTopology(2, ch2, ch2, ch2);
+      cacheTopology = new CacheTopology(2, 1, ch2, ch2, ch2, ch2.getMembers());
       stateProvider.onTopologyUpdate(cacheTopology, true);
 
       assertFalse(stateProvider.isStateTransferInProgress());
@@ -220,7 +238,7 @@ public class StateProviderTest {
 
       // create CHes
       DefaultConsistentHashFactory chf = new DefaultConsistentHashFactory();
-      DefaultConsistentHash ch1 = chf.create(new MurmurHash3(), 2, numSegments, members1, null);
+      DefaultConsistentHash ch1 = chf.create(MurmurHash3.getInstance(), 2, numSegments, members1, null);
       //todo [anistor] it seems that address 6 is not used for un-owned segments
       DefaultConsistentHash ch2 = chf.updateMembers(ch1, members2, null);
 
@@ -256,7 +274,7 @@ public class StateProviderTest {
          @Override
          public RpcOptionsBuilder answer(InvocationOnMock invocation) {
             Object[] args = invocation.getArguments();
-            return new RpcOptionsBuilder(10000, TimeUnit.MILLISECONDS, (ResponseMode) args[0], true);
+            return new RpcOptionsBuilder(10000, TimeUnit.MILLISECONDS, (ResponseMode) args[0], DeliverOrder.PER_SENDER);
          }
       });
 
@@ -285,7 +303,7 @@ public class StateProviderTest {
       when(transactionTable.getLocalTransactions()).thenReturn(Collections.<LocalTransaction>emptyList());
       when(transactionTable.getRemoteTransactions()).thenReturn(Collections.<RemoteTransaction>emptyList());
 
-      cacheTopology = new CacheTopology(1, ch1, ch1, ch1);
+      cacheTopology = new CacheTopology(1, 1, ch1, ch1, ch1, ch2.getMembers());
       stateProvider.onTopologyUpdate(cacheTopology, false);
 
       log.debug("ch1: " + ch1);
@@ -308,7 +326,7 @@ public class StateProviderTest {
 
       // TestingUtil.sleepThread(15000);
       log.debug("ch2: " + ch2);
-      cacheTopology = new CacheTopology(2, ch2, ch2, ch2);
+      cacheTopology = new CacheTopology(2, 1, ch2, ch2, ch2, ch2.getMembers());
       stateProvider.onTopologyUpdate(cacheTopology, false);
 
       assertFalse(stateProvider.isStateTransferInProgress());

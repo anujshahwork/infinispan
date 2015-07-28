@@ -7,9 +7,9 @@ import java.io.InputStream;
 import java.util.List;
 
 import org.apache.lucene.queryparser.classic.ParseException;
-import org.hibernate.search.engine.spi.SearchFactoryImplementor;
-import org.hibernate.search.indexes.impl.DirectoryBasedIndexManager;
+import org.hibernate.search.indexes.spi.DirectoryBasedIndexManager;
 import org.hibernate.search.indexes.spi.IndexManager;
+import org.hibernate.search.spi.SearchIntegrator;
 import org.hibernate.search.store.DirectoryProvider;
 import org.hibernate.search.store.impl.RAMDirectoryProvider;
 import org.infinispan.Cache;
@@ -32,7 +32,7 @@ public class MultipleCachesTest extends SingleCacheManagerTest {
 
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
-      String config = TestingUtil.INFINISPAN_START_TAG + "\n" +
+      String config = TestingUtil.InfinispanStartTag.LATEST + "\n" +
             "<cache-container default-cache=\"default\">" +
             "   <local-cache name=\"default\">\n" +
             "      <indexing index=\"NONE\" />\n" +
@@ -45,7 +45,7 @@ public class MultipleCachesTest extends SingleCacheManagerTest {
             "   </local-cache>\n" +
             "</cache-container>"
             + TestingUtil.INFINISPAN_END_TAG;
-      System.out.println("Using test configuration:\n\n" + config + "\n");
+      log.tracef("Using test configuration:\n%s", config);
       InputStream is = new ByteArrayInputStream(config.getBytes());
       final EmbeddedCacheManager cm;
       try {
@@ -97,7 +97,7 @@ public class MultipleCachesTest extends SingleCacheManagerTest {
       assertEquals(75, p.getAge());
 
       SearchManager queryFactory = Search.getSearchManager(indexedCache);
-      SearchFactoryImplementor searchImpl = (SearchFactoryImplementor) queryFactory.getSearchFactory();
+      SearchIntegrator searchImpl = queryFactory.unwrap(SearchIntegrator.class);
       IndexManager[] indexManagers = searchImpl.getIndexBinding(Person.class).getIndexManagers();
       assert indexManagers != null && indexManagers.length == 1;
       DirectoryBasedIndexManager directory = (DirectoryBasedIndexManager)indexManagers[0];

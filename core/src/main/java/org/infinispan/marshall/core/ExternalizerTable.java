@@ -6,6 +6,7 @@ import org.infinispan.atomic.impl.AtomicHashMapDelta;
 import org.infinispan.atomic.impl.ClearOperation;
 import org.infinispan.atomic.impl.PutOperation;
 import org.infinispan.atomic.impl.RemoveOperation;
+import org.infinispan.commands.CommandInvocationId;
 import org.infinispan.commands.RemoteCommandsFactory;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.hash.MurmurHash2;
@@ -15,6 +16,7 @@ import org.infinispan.commons.io.ByteBufferImpl;
 import org.infinispan.commons.io.UnsignedNumeric;
 import org.infinispan.commons.marshall.AdvancedExternalizer;
 import org.infinispan.commons.marshall.StreamingMarshaller;
+import org.infinispan.commons.util.ImmutableListCopy;
 import org.infinispan.commons.util.Immutables;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.configuration.global.GlobalConfiguration;
@@ -52,12 +54,18 @@ import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.annotations.Stop;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
+import org.infinispan.filter.AcceptAllKeyValueFilter;
+import org.infinispan.filter.CacheFilters;
 import org.infinispan.filter.CollectionKeyFilter;
+import org.infinispan.filter.CompositeKeyFilter;
 import org.infinispan.filter.CompositeKeyValueFilter;
+import org.infinispan.filter.KeyFilterAsKeyValueFilter;
+import org.infinispan.filter.KeyValueFilterAsKeyFilter;
+import org.infinispan.filter.NullValueConverter;
 import org.infinispan.marshall.exts.ArrayExternalizers;
+import org.infinispan.marshall.exts.CacheRpcCommandExternalizer;
 import org.infinispan.marshall.exts.EnumSetExternalizer;
 import org.infinispan.marshall.exts.ListExternalizer;
-import org.infinispan.marshall.exts.CacheRpcCommandExternalizer;
 import org.infinispan.marshall.exts.MapExternalizer;
 import org.infinispan.marshall.exts.ReplicableCommandExternalizer;
 import org.infinispan.marshall.exts.SetExternalizer;
@@ -68,7 +76,13 @@ import org.infinispan.notifications.cachelistener.cluster.ClusterEvent;
 import org.infinispan.notifications.cachelistener.cluster.ClusterEventCallable;
 import org.infinispan.notifications.cachelistener.cluster.ClusterListenerRemoveCallable;
 import org.infinispan.notifications.cachelistener.cluster.ClusterListenerReplicateCallable;
-import org.infinispan.filter.KeyFilterAsKeyValueFilter;
+import org.infinispan.notifications.cachelistener.cluster.MultiClusterEventCallable;
+import org.infinispan.notifications.cachelistener.filter.CacheEventConverterAsConverter;
+import org.infinispan.notifications.cachelistener.filter.CacheEventFilterAsKeyValueFilter;
+import org.infinispan.notifications.cachelistener.filter.CacheEventFilterConverterAsKeyValueFilterConverter;
+import org.infinispan.notifications.cachelistener.filter.ConverterAsCacheEventConverter;
+import org.infinispan.notifications.cachelistener.filter.KeyFilterAsCacheEventFilter;
+import org.infinispan.notifications.cachelistener.filter.KeyValueFilterAsCacheEventFilter;
 import org.infinispan.registry.ScopedKey;
 import org.infinispan.remoting.responses.CacheNotFoundResponse;
 import org.infinispan.remoting.responses.ExceptionResponse;
@@ -79,8 +93,13 @@ import org.infinispan.remoting.transport.jgroups.JGroupsAddress;
 import org.infinispan.remoting.transport.jgroups.JGroupsTopologyAwareAddress;
 import org.infinispan.statetransfer.StateChunk;
 import org.infinispan.statetransfer.TransactionInfo;
+import org.infinispan.stream.StreamMarshalling;
+import org.infinispan.stream.impl.intops.IntermediateOperationExternalizer;
+import org.infinispan.stream.impl.termop.TerminalOperationExternalizer;
 import org.infinispan.topology.CacheJoinInfo;
+import org.infinispan.topology.CacheStatusResponse;
 import org.infinispan.topology.CacheTopology;
+import org.infinispan.topology.ManagerStatusResponse;
 import org.infinispan.transaction.xa.DldGlobalTransaction;
 import org.infinispan.transaction.xa.GlobalTransaction;
 import org.infinispan.transaction.xa.recovery.InDoubtTxInfoImpl;
@@ -161,20 +180,19 @@ public class ExternalizerTable implements ObjectTable {
 
    @Stop(priority = 13) // Stop after global marshaller
    public void stop() {
+      started = false;
       writers.clear();
       readers.clear();
-      started = false;
       log.trace("Externalizer reader and writer maps have been cleared and constant object table was stopped");
    }
 
    @Override
    public Writer getObjectWriter(Object o) throws IOException {
       Class<?> clazz = o.getClass();
-      Writer writer = writers.get(clazz);
-      if (writer == null) {
-         if (Thread.currentThread().isInterrupted())
-            throw new IOException(log.interruptedRetrievingObjectWriter(clazz.getName()));
+      if (!started) {
+         throw log.externalizerTableStopped(clazz.getName());
       }
+      Writer writer = writers.get(clazz);
       return writer;
    }
 
@@ -235,6 +253,7 @@ public class ExternalizerTable implements ObjectTable {
       addInternalExternalizer(new DldGlobalTransaction.Externalizer());
       addInternalExternalizer(new RecoveryAwareDldGlobalTransaction.Externalizer());
       addInternalExternalizer(new JGroupsAddress.Externalizer());
+      addInternalExternalizer(new ImmutableListCopy.Externalizer());
       addInternalExternalizer(new Immutables.ImmutableMapWrapperExternalizer());
       addInternalExternalizer(new MarshalledValue.Externalizer(globalMarshaller));
       addInternalExternalizer(new ByteBufferImpl.Externalizer());
@@ -312,14 +331,32 @@ public class ExternalizerTable implements ObjectTable {
 
       addInternalExternalizer(new CollectionKeyFilter.Externalizer());
       addInternalExternalizer(new KeyFilterAsKeyValueFilter.Externalizer());
+      addInternalExternalizer(new KeyValueFilterAsKeyFilter.Externalizer());
       addInternalExternalizer(new ClusterEvent.Externalizer());
       addInternalExternalizer(new ClusterEventCallable.Externalizer());
       addInternalExternalizer(new ClusterListenerRemoveCallable.Externalizer());
       addInternalExternalizer(new ClusterListenerReplicateCallable.Externalizer());
       addInternalExternalizer(new XSiteState.XSiteStateExternalizer());
+      addInternalExternalizer(new CompositeKeyFilter.Externalizer());
       addInternalExternalizer(new CompositeKeyValueFilter.Externalizer());
       addInternalExternalizer(new MapReduceManagerImpl.DeltaListExternalizer());
       addInternalExternalizer(new MapReduceManagerImpl.DeltaAwareListExternalizer());
+      addInternalExternalizer(new CacheStatusResponse.Externalizer());
+      addInternalExternalizer(new CacheEventConverterAsConverter.Externalizer());
+      addInternalExternalizer(new CacheEventFilterAsKeyValueFilter.Externalizer());
+      addInternalExternalizer(new CacheEventFilterConverterAsKeyValueFilterConverter.Externalizer());
+      addInternalExternalizer(new ConverterAsCacheEventConverter.Externalizer());
+      addInternalExternalizer(new KeyFilterAsCacheEventFilter.Externalizer());
+      addInternalExternalizer(new KeyValueFilterAsCacheEventFilter.Externalizer());
+      addInternalExternalizer(new NullValueConverter.Externalizer());
+      addInternalExternalizer(new AcceptAllKeyValueFilter.Externalizer());
+      addInternalExternalizer(new ManagerStatusResponse.Externalizer());
+      addInternalExternalizer(new MultiClusterEventCallable.Externalizer());
+      addInternalExternalizer(new IntermediateOperationExternalizer());
+      addInternalExternalizer(new TerminalOperationExternalizer());
+      addInternalExternalizer(new StreamMarshalling.StreamMarshallingExternalizer());
+      addInternalExternalizer(new CommandInvocationId.Externalizer());
+      addInternalExternalizer(new CacheFilters.CacheFiltersExternalizer());
    }
 
    void addInternalExternalizer(AdvancedExternalizer<?> ext) {

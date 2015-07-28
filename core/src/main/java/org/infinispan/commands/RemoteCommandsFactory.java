@@ -1,13 +1,17 @@
 package org.infinispan.commands;
 
+import java.util.Map;
+
 import org.infinispan.commands.control.LockControlCommand;
 import org.infinispan.commands.module.ExtendedModuleCommandFactory;
 import org.infinispan.commands.module.ModuleCommandFactory;
 import org.infinispan.commands.read.DistributedExecuteCommand;
+import org.infinispan.commands.read.GetCacheEntryCommand;
 import org.infinispan.commands.read.GetKeyValueCommand;
 import org.infinispan.commands.read.MapCombineCommand;
 import org.infinispan.commands.read.ReduceCommand;
 import org.infinispan.commands.remote.CacheRpcCommand;
+import org.infinispan.commands.remote.ClusteredGetAllCommand;
 import org.infinispan.commands.remote.ClusteredGetCommand;
 import org.infinispan.commands.remote.GetKeysInGroupCommand;
 import org.infinispan.commands.remote.MultipleRpcCommand;
@@ -26,27 +30,37 @@ import org.infinispan.commands.tx.totalorder.TotalOrderNonVersionedPrepareComman
 import org.infinispan.commands.tx.totalorder.TotalOrderRollbackCommand;
 import org.infinispan.commands.tx.totalorder.TotalOrderVersionedCommitCommand;
 import org.infinispan.commands.tx.totalorder.TotalOrderVersionedPrepareCommand;
-import org.infinispan.commands.write.*;
+import org.infinispan.commands.write.ApplyDeltaCommand;
+import org.infinispan.commands.write.ClearCommand;
+import org.infinispan.commands.write.InvalidateCommand;
+import org.infinispan.commands.write.InvalidateL1Command;
+import org.infinispan.commands.write.PutKeyValueCommand;
+import org.infinispan.commands.write.PutMapCommand;
+import org.infinispan.commands.write.RemoveCommand;
+import org.infinispan.commands.write.ReplaceCommand;
 import org.infinispan.commons.CacheException;
-import org.infinispan.iteration.impl.EntryRequestCommand;
-import org.infinispan.iteration.impl.EntryResponseCommand;
+import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.factories.GlobalComponentRegistry;
 import org.infinispan.factories.KnownComponentNames;
 import org.infinispan.factories.annotations.ComponentName;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
-import org.infinispan.persistence.manager.PersistenceManager;
+import org.infinispan.iteration.impl.EntryRequestCommand;
+import org.infinispan.iteration.impl.EntryResponseCommand;
+import org.infinispan.jmx.CacheJmxRegistration;
 import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.persistence.manager.PersistenceManager;
 import org.infinispan.statetransfer.StateRequestCommand;
 import org.infinispan.statetransfer.StateResponseCommand;
+import org.infinispan.stream.impl.StreamRequestCommand;
+import org.infinispan.stream.impl.StreamResponseCommand;
+import org.infinispan.stream.impl.StreamSegmentResponseCommand;
 import org.infinispan.topology.CacheTopologyControlCommand;
 import org.infinispan.xsite.SingleXSiteRpcCommand;
 import org.infinispan.xsite.XSiteAdminCommand;
 import org.infinispan.xsite.statetransfer.XSiteStatePushCommand;
 import org.infinispan.xsite.statetransfer.XSiteStateTransferControlCommand;
-
-import java.util.Map;
 
 /**
  * Specifically used to create un-initialized {@link org.infinispan.commands.ReplicableCommand}s from a byte stream.
@@ -125,6 +139,9 @@ public class RemoteCommandsFactory {
             case GetKeysInGroupCommand.COMMAND_ID:
                command = new GetKeysInGroupCommand();
                break;
+            case GetCacheEntryCommand.COMMAND_ID:
+               command = new GetCacheEntryCommand();
+               break;
             default:
                throw new CacheException("Unknown command id " + id + "!");
          }
@@ -201,8 +218,10 @@ public class RemoteCommandsFactory {
                command = new StateResponseCommand(cacheName);
                break;
             case RemoveCacheCommand.COMMAND_ID:
-               command = new RemoveCacheCommand(cacheName, cacheManager, registry,
-                     registry.getNamedComponentRegistry(cacheName).getComponent(PersistenceManager.class));
+               ComponentRegistry namedCacheRegistry = registry.getNamedComponentRegistry(cacheName);
+               command = new RemoveCacheCommand(cacheName, cacheManager, this.registry,
+                     namedCacheRegistry.getComponent(PersistenceManager.class),
+                     namedCacheRegistry.getComponent(CacheJmxRegistration.class));
                break;
             case TxCompletionNotificationCommand.COMMAND_ID:
                command = new TxCompletionNotificationCommand(cacheName);
@@ -248,6 +267,18 @@ public class RemoteCommandsFactory {
                break;
             case EntryResponseCommand.COMMAND_ID:
                command = new EntryResponseCommand(cacheName);
+               break;
+            case ClusteredGetAllCommand.COMMAND_ID:
+               command = new ClusteredGetAllCommand(cacheName);
+               break;
+            case StreamRequestCommand.COMMAND_ID:
+               command = new StreamRequestCommand(cacheName);
+               break;
+            case StreamSegmentResponseCommand.COMMAND_ID:
+               command = new StreamSegmentResponseCommand<>(cacheName);
+               break;
+            case StreamResponseCommand.COMMAND_ID:
+               command = new StreamResponseCommand(cacheName);
                break;
             default:
                throw new CacheException("Unknown command id " + id + "!");

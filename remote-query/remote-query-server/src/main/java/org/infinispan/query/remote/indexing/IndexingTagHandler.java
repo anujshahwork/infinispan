@@ -20,10 +20,7 @@ import org.infinispan.query.remote.QueryFacadeImpl;
  * @author anistor@redhat.com
  * @since 6.0
  */
-class IndexingTagHandler implements TagHandler {
-
-   public static final int INDEXED_MESSAGE_OPTION = 55554;
-   public static final int INDEXED_FIELD_OPTION = 55555;
+final class IndexingTagHandler implements TagHandler {
 
    public static final Integer TRUE_INT = 1;
    public static final Integer FALSE_INT = 0;
@@ -57,13 +54,17 @@ class IndexingTagHandler implements TagHandler {
       messageContext.markField(fieldNumber);
 
       //todo [anistor] unknown fields are not indexed
-      if (fieldName != null && isIndexed(fieldNumber)) {
-         addFieldToDocument(fieldName, type, tagValue);
+      if (fieldName != null) {
+         IndexingMetadata indexingMetadata = messageContext.getMessageDescriptor().getProcessedAnnotation(IndexingMetadata.INDEXED_ANNOTATION);
+         if (indexingMetadata == null || indexingMetadata.isFieldIndexed(fieldNumber)) {
+            boolean isStored = indexingMetadata == null || indexingMetadata.isFieldStored(fieldNumber);
+            addFieldToDocument(fieldName, type, tagValue, isStored);
+         }
       }
    }
 
-   private void addFieldToDocument(String fieldName, Type type, Object value) {
-      LuceneOptions luceneOptions = STORED_NOT_ANALYZED;
+   private void addFieldToDocument(String fieldName, Type type, Object value, boolean isStored) {
+      LuceneOptions luceneOptions = isStored ? STORED_NOT_ANALYZED : NOT_STORED_NOT_ANALYZED;
       if (value == null) {
          value = QueryFacadeImpl.NULL_TOKEN;  //todo [anistor] do we need a specific null token for numeric fields?
          luceneOptions = NOT_STORED_NOT_ANALYZED;
@@ -102,22 +103,6 @@ class IndexingTagHandler implements TagHandler {
       return fieldPrefix != null ? fieldPrefix + "." + fieldName : fieldName;
    }
 
-   private boolean isIndexed(int fieldNumber) {
-      return true;
-// TODO [anistor] for now we index all fields
-//      boolean isIndexed = false;
-//      Descriptors.FieldDescriptor fd = messageContext.getFieldByNumber(fieldNumber);
-//      List<Long> indexedMessageOption = fd.getContainingType().getOptions().getUnknownFields().getField(INDEXED_MESSAGE_OPTION).getVarintList();
-//      if (!indexedMessageOption.isEmpty()) {
-//         isIndexed = indexedMessageOption.get(0) == 1;
-//      }
-//      List<Long> indexedFieldOption = fd.getOptions().getUnknownFields().getField(INDEXED_FIELD_OPTION).getVarintList();
-//      if (!indexedFieldOption.isEmpty()) {
-//         isIndexed = indexedFieldOption.get(0) == 1;
-//      }
-//      return isIndexed;
-   }
-
    @Override
    public void onStartNested(int fieldNumber, String fieldName, Descriptor messageDescriptor) {
       messageContext.markField(fieldNumber);
@@ -153,7 +138,11 @@ class IndexingTagHandler implements TagHandler {
          if (!messageContext.isFieldMarked(fd.getNumber())) {
             Object defaultValue = fd.getJavaType() == JavaType.MESSAGE
                   || fd.hasDefaultValue() ? fd.getDefaultValue() : null;
-            addFieldToDocument(fd.getName(), fd.getType(), defaultValue);
+            IndexingMetadata indexingMetadata = messageContext.getMessageDescriptor().getProcessedAnnotation(IndexingMetadata.INDEXED_ANNOTATION);
+            if (indexingMetadata == null || indexingMetadata.isFieldIndexed(fd.getNumber())) {
+               boolean isStored = indexingMetadata == null || indexingMetadata.isFieldStored(fd.getNumber());
+               addFieldToDocument(fd.getName(), fd.getType(), defaultValue, isStored);
+            }
          }
       }
    }

@@ -12,16 +12,17 @@ import org.hibernate.annotations.common.reflection.ReflectionManager;
 import org.hibernate.search.cfg.SearchMapping;
 import org.hibernate.search.cfg.spi.SearchConfiguration;
 import org.hibernate.search.cfg.spi.SearchConfigurationBase;
+import org.hibernate.search.engine.spi.SearchMappingHelper;
 import org.hibernate.search.engine.service.classloading.impl.DefaultClassLoaderService;
 import org.hibernate.search.engine.service.classloading.spi.ClassLoaderService;
 import org.hibernate.search.engine.service.spi.Service;
-import org.hibernate.search.impl.SearchMappingBuilder;
-import org.hibernate.search.infinispan.CacheManagerService;
+import org.hibernate.search.store.DirectoryProvider;
+import org.infinispan.hibernate.search.spi.CacheManagerService;
 import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.manager.EmbeddedCacheManager;
 
 /**
- * Class that implements {@link org.hibernate.search.cfg.SearchConfiguration} so that within Infinispan-Query, there is
+ * Class that implements {@link org.hibernate.search.cfg.spi.SearchConfiguration} so that within Infinispan-Query, there is
  * no need for a Hibernate Core configuration object.
  *
  * @author Navin Surtani
@@ -54,7 +55,7 @@ public class SearchableCacheConfiguration extends SearchConfigurationBase implem
       }
 
       //deal with programmatic mapping:
-      searchMapping = SearchMappingBuilder.getSearchMapping(this);
+      searchMapping = SearchMappingHelper.extractSearchMapping(this);
 
       //if we have a SearchMapping then we can predict at least those entities specified in the mapping
       //and avoid further SearchFactory rebuilds triggered by new entity discovery during cache events
@@ -73,6 +74,11 @@ public class SearchableCacheConfiguration extends SearchConfigurationBase implem
       map.put(ComponentRegistryService.class, loopService);
       map.put(CacheManagerService.class, loopService);
       return Collections.unmodifiableMap(map);
+   }
+
+   @Override
+   public boolean isDeleteByTermEnforced() {
+      return true;
    }
 
    @Override

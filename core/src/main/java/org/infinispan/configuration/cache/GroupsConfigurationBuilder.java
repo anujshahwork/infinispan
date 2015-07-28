@@ -1,12 +1,15 @@
 package org.infinispan.configuration.cache;
 
-import org.infinispan.commons.configuration.Builder;
-import org.infinispan.distribution.group.Group;
-import org.infinispan.distribution.group.Grouper;
+import static org.infinispan.configuration.cache.GroupsConfiguration.ENABLED;
+import static org.infinispan.configuration.cache.GroupsConfiguration.GROUPERS;
 
-import java.util.LinkedList;
 import java.util.List;
 
+import org.infinispan.commons.configuration.Builder;
+import org.infinispan.commons.configuration.attributes.AttributeSet;
+import org.infinispan.configuration.global.GlobalConfiguration;
+import org.infinispan.distribution.group.Group;
+import org.infinispan.distribution.group.Grouper;
 /**
  * Configuration for various grouper definitions. See the user guide for more information.
  *
@@ -15,11 +18,10 @@ import java.util.List;
  */
 public class GroupsConfigurationBuilder extends AbstractClusteringConfigurationChildBuilder implements Builder<GroupsConfiguration> {
 
-   private boolean enabled = false;
-   private List<Grouper<?>> groupers = new LinkedList<Grouper<?>>();
-
+   private final AttributeSet attributes;
    protected GroupsConfigurationBuilder(ClusteringConfigurationBuilder builder) {
       super(builder);
+      attributes = GroupsConfiguration.attributeDefinitionSet();
    }
 
    /**
@@ -27,7 +29,7 @@ public class GroupsConfigurationBuilder extends AbstractClusteringConfigurationC
     * groupers will be invoked
     */
    public GroupsConfigurationBuilder enabled() {
-      this.enabled = true;
+      attributes.attribute(ENABLED).set(true);
       return this;
    }
 
@@ -36,7 +38,7 @@ public class GroupsConfigurationBuilder extends AbstractClusteringConfigurationC
     * groupers will be invoked
     */
    public GroupsConfigurationBuilder enabled(boolean enabled) {
-      this.enabled = enabled;
+      attributes.attribute(ENABLED).set(enabled);
       return this;
    }
 
@@ -45,7 +47,7 @@ public class GroupsConfigurationBuilder extends AbstractClusteringConfigurationC
     * groupers will not be be invoked
     */
    public GroupsConfigurationBuilder disabled() {
-      this.enabled = false;
+      attributes.attribute(ENABLED).set(false);
       return this;
    }
 
@@ -53,7 +55,7 @@ public class GroupsConfigurationBuilder extends AbstractClusteringConfigurationC
     * Set the groupers to use
     */
    public GroupsConfigurationBuilder withGroupers(List<Grouper<?>> groupers) {
-      this.groupers = groupers;
+      attributes.attribute(GROUPERS).set(groupers);
       return this;
    }
 
@@ -61,7 +63,9 @@ public class GroupsConfigurationBuilder extends AbstractClusteringConfigurationC
     * Clear the groupers
     */
    public GroupsConfigurationBuilder clearGroupers() {
-      this.groupers = new LinkedList<Grouper<?>>();
+      List<Grouper<?>> groupers = attributes.attribute(GROUPERS).get();
+      groupers.clear();
+      attributes.attribute(GROUPERS).set(groupers);
       return this;
    }
 
@@ -69,7 +73,9 @@ public class GroupsConfigurationBuilder extends AbstractClusteringConfigurationC
     * Add a grouper
     */
    public GroupsConfigurationBuilder addGrouper(Grouper<?> grouper) {
-      this.groupers.add(grouper);
+      List<Grouper<?>> groupers = attributes.attribute(GROUPERS).get();
+      groupers.add(grouper);
+      attributes.attribute(GROUPERS).set(groupers);
       return this;
    }
 
@@ -78,24 +84,23 @@ public class GroupsConfigurationBuilder extends AbstractClusteringConfigurationC
    }
 
    @Override
+   public void validate(GlobalConfiguration globalConfig) {
+   }
+
+   @Override
    public GroupsConfiguration create() {
-      return new GroupsConfiguration(enabled, groupers);
+      return new GroupsConfiguration(attributes.protect());
    }
 
    @Override
    public GroupsConfigurationBuilder read(GroupsConfiguration template) {
-      this.enabled = template.enabled();
-      this.groupers = template.groupers();
+      attributes.read(template.attributes());
 
       return this;
    }
 
    @Override
    public String toString() {
-      return "GroupsConfigurationBuilder{" +
-            "enabled=" + enabled +
-            ", groupers=" + groupers +
-            '}';
+      return "GroupsConfigurationBuilder [attributes=" + attributes + "]";
    }
-
 }

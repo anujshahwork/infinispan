@@ -1,6 +1,7 @@
 package org.infinispan.test.arquillian;
 
 import java.util.List;
+import java.util.concurrent.Future;
 
 import javax.transaction.RollbackException;
 import javax.transaction.SystemException;
@@ -60,8 +61,8 @@ public class DatagridManager extends MultipleCacheManagersTest
    }
 
    //name change
-   public Thread forkThread(Runnable r, boolean sync) {
-      return fork(r, sync);
+   public Future<?> forkThread(Runnable r) {
+      return fork(r);
    }
 
    //name change
@@ -78,7 +79,7 @@ public class DatagridManager extends MultipleCacheManagersTest
 
    //name change
    public void assertKeyNotLocked(Cache cache, Object key) {
-      assertNotLocked(cache, key);
+      assertEventuallyNotLocked(cache, key);
    }
 
    //name change

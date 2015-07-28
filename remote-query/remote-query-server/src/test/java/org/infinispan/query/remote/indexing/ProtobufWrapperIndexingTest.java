@@ -1,8 +1,8 @@
 package org.infinispan.query.remote.indexing;
 
 import org.apache.lucene.search.Query;
-import org.hibernate.search.engine.spi.SearchFactoryImplementor;
 import org.hibernate.search.query.engine.spi.EntityInfo;
+import org.hibernate.search.spi.SearchIntegrator;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.cache.Index;
 import org.infinispan.manager.EmbeddedCacheManager;
@@ -29,7 +29,7 @@ import static org.junit.Assert.assertNotNull;
  * @author anistor@redhat.com
  * @since 6.0
  */
-@Test(groups = "functional", testName = "query.remote.protostream.ProtobufWrapperIndexingTest")
+@Test(groups = "functional", testName = "query.remote.indexing.ProtobufWrapperIndexingTest")
 public class ProtobufWrapperIndexingTest extends SingleCacheManagerTest {
 
    protected EmbeddedCacheManager createCacheManager() throws Exception {
@@ -38,14 +38,12 @@ public class ProtobufWrapperIndexingTest extends SingleCacheManagerTest {
             .indexing().index(Index.ALL)
             .addProperty("default.directory_provider", "ram")
             .addProperty("lucene_version", "LUCENE_CURRENT");
-
-      EmbeddedCacheManager cacheManager = TestCacheManagerFactory.createCacheManager(cfg);
-      cacheManager.getCache(); //TODO this ensures the GlobalComponentRegistry is initialised right now, but it's not the cleanest way
-      MarshallerRegistration.registerMarshallers(ProtobufMetadataManager.getSerializationContext(cacheManager));
-      return cacheManager;
+      return TestCacheManagerFactory.createCacheManager(cfg);
    }
 
    public void testIndexingWithWrapper() throws Exception {
+      MarshallerRegistration.registerMarshallers(ProtobufMetadataManager.getSerializationContext(cacheManager));
+
       // Store some test data:
       ProtobufValueWrapper wrapper1 = new ProtobufValueWrapper(createMarshalledUser("Adrian", "Nistor"));
       ProtobufValueWrapper wrapper2 = new ProtobufValueWrapper(createMarshalledUser("John", "Batman"));
@@ -55,8 +53,8 @@ public class ProtobufWrapperIndexingTest extends SingleCacheManagerTest {
 
       SearchManager sm = Search.getSearchManager(cache);
 
-      SearchFactoryImplementor searchFactory = (SearchFactoryImplementor) sm.getSearchFactory();
-      assertNotNull(searchFactory.getIndexManagerHolder().getIndexManager(ProtobufValueWrapper.class.getName()));
+      SearchIntegrator searchFactory = sm.unwrap(SearchIntegrator.class);
+      assertNotNull(searchFactory.getIndexManager(ProtobufValueWrapper.class.getName()));
 
       Query luceneQuery = sm.buildQueryBuilderForClass(ProtobufValueWrapper.class)
             .get()
@@ -69,6 +67,9 @@ public class ProtobufWrapperIndexingTest extends SingleCacheManagerTest {
 
       List<Object> list = sm.getQuery(luceneQuery).list();
       assertEquals(1, list.size());
+      ProtobufValueWrapper pvw = (ProtobufValueWrapper) list.get(0);
+      User unwrapped = (User) ProtobufUtil.fromWrappedByteArray(ProtobufMetadataManager.getSerializationContextInternal(cacheManager), pvw.getBinary());
+      assertEquals("Adrian", unwrapped.getName());
 
       // an alternative approach ...
 
@@ -96,13 +97,13 @@ public class ProtobufWrapperIndexingTest extends SingleCacheManagerTest {
       user.setName(name);
       user.setSurname(surname);
       user.setGender(User.Gender.MALE);
-      user.setAccountIds(Collections.singletonList(12));
+      user.setAccountIds(Collections.singleton(12));
 
       Address address = new Address();
       address.setStreet("Dark Alley");
       address.setPostCode("1234");
       user.setAddresses(Collections.singletonList(address));
 
-      return ProtobufUtil.toWrappedByteArray(ProtobufMetadataManager.getSerializationContext(cacheManager), user);
+      return ProtobufUtil.toWrappedByteArray(ProtobufMetadataManager.getSerializationContextInternal(cacheManager), user);
    }
 }

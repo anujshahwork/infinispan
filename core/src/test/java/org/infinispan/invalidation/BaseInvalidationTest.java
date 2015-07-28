@@ -1,10 +1,7 @@
 package org.infinispan.invalidation;
 
 import static org.infinispan.context.Flag.CACHE_MODE_LOCAL;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyLong;
-import static org.mockito.Matchers.anyObject;
-import static org.mockito.Matchers.eq;
+import static org.mockito.Matchers.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.testng.AssertJUnit.assertEquals;
@@ -12,6 +9,7 @@ import static org.testng.AssertJUnit.assertNull;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import javax.transaction.RollbackException;
 import javax.transaction.Transaction;
@@ -19,11 +17,13 @@ import javax.transaction.TransactionManager;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.api.mvcc.LockAssert;
-import org.infinispan.commands.remote.CacheRpcCommand;
+import org.infinispan.commands.ReplicableCommand;
 import org.infinispan.commands.write.ClearCommand;
 import org.infinispan.commands.write.InvalidateCommand;
+import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.rpc.ResponseFilter;
 import org.infinispan.remoting.rpc.ResponseMode;
 import org.infinispan.remoting.rpc.RpcManager;
@@ -200,9 +200,10 @@ public abstract class BaseInvalidationTest extends MultipleCacheManagersTest {
 
          when(mockTransport.getMembers()).thenReturn(members);
          when(mockTransport.getAddress()).thenReturn(addressOne);
-         when(mockTransport.invokeRemotely((List<Address>) anyObject(), (CacheRpcCommand) anyObject(),
-                                             eq(isSync ? ResponseMode.SYNCHRONOUS : ResponseMode.ASYNCHRONOUS_WITH_SYNC_MARSHALLING),
-                                             anyLong(), anyBoolean(), (ResponseFilter) anyObject(), anyBoolean(), anyBoolean())).thenReturn(null);
+         when(mockTransport.invokeRemotelyAsync(anyCollectionOf(Address.class), any(ReplicableCommand.class),
+               eq(isSync ? ResponseMode.SYNCHRONOUS : ResponseMode.ASYNCHRONOUS), anyLong(), any(
+               ResponseFilter.class), any(DeliverOrder.class), anyBoolean()))
+               .thenReturn(CompletableFuture.completedFuture(InfinispanCollections.emptyMap()));
 
          cache1.put("k", "v");
 

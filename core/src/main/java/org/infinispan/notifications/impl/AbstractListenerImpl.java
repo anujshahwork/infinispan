@@ -45,6 +45,7 @@ public abstract class AbstractListenerImpl<T, L extends ListenerInvocation<T>> {
    protected abstract class AbstractInvocationBuilder {
       protected Object target;
       protected Method method;
+      protected Class<? extends Annotation> annotation;
       protected boolean sync;
       protected ClassLoader classLoader;
       protected Subject subject;
@@ -55,6 +56,11 @@ public abstract class AbstractListenerImpl<T, L extends ListenerInvocation<T>> {
 
       public Method getMethod() {
          return method;
+      }
+
+      public AbstractInvocationBuilder setAnnotation(Class<? extends Annotation> annotation) {
+         this.annotation = annotation;
+         return this;
       }
 
       public boolean isSync() {
@@ -103,11 +109,12 @@ public abstract class AbstractListenerImpl<T, L extends ListenerInvocation<T>> {
    protected ExecutorService asyncProcessor;
 
    @Inject
+   @SuppressWarnings("unused")
    void injectExecutor(@ComponentName(KnownComponentNames.ASYNC_NOTIFICATION_EXECUTOR) ExecutorService executor) {
       this.asyncProcessor = executor;
    }
 
-   @Start (priority = 9)
+   @Start(priority = 9)
    public void start() {
       syncProcessor = new WithinThreadExecutor();
    }
@@ -116,7 +123,7 @@ public abstract class AbstractListenerImpl<T, L extends ListenerInvocation<T>> {
     * Removes all listeners from the notifier
     */
    @Stop(priority = 99)
-   void stop() {
+   public void stop() {
       for (List<L> list : listenersMap.values()) {
          if (list != null) list.clear();
       }
@@ -140,14 +147,14 @@ public abstract class AbstractListenerImpl<T, L extends ListenerInvocation<T>> {
          removeListenerInvocation(annotation, listener);
    }
 
-   private void removeListenerInvocation(Class<? extends Annotation> annotation, Object listener) {
-      if (listener == null) return;
+   protected Set<L> removeListenerInvocation(Class<? extends Annotation> annotation, Object listener) {
       List<L> l = getListenerCollectionForAnnotation(annotation);
-      Set<ListenerInvocation> markedForRemoval = new HashSet<ListenerInvocation>(4);
-      for (ListenerInvocation li : l) {
+      Set<L> markedForRemoval = new HashSet<L>(4);
+      for (L li : l) {
          if (listener.equals(li.getTarget())) markedForRemoval.add(li);
       }
       l.removeAll(markedForRemoval);
+      return markedForRemoval;
    }
 
    public Set<Object> getListeners() {
@@ -166,8 +173,9 @@ public abstract class AbstractListenerImpl<T, L extends ListenerInvocation<T>> {
     *
     * @param listener object to be considered as a listener.
     * @param builder The builder to use to build the invocation
+    * @return {@code true} if annotated listener methods were found or {@code false} otherwise
     */
-   protected boolean validateAndAddListenerInvocation(Object listener, AbstractInvocationBuilder builder) {
+   protected boolean validateAndAddListenerInvocations(Object listener, AbstractInvocationBuilder builder) {
       Listener l = testListenerClassValidity(listener.getClass());
       boolean foundMethods = false;
       builder.setTarget(listener);
@@ -176,16 +184,21 @@ public abstract class AbstractListenerImpl<T, L extends ListenerInvocation<T>> {
       Map<Class<? extends Annotation>, Class<?>> allowedListeners = getAllowedMethodAnnotations(l);
       // now try all methods on the listener for anything that we like.  Note that only PUBLIC methods are scanned.
       for (Method m : listener.getClass().getMethods()) {
-         // loop through all valid method annotations
-         for (Map.Entry<Class<? extends Annotation>,Class<?>> annotationEntry : allowedListeners.entrySet()) {
-            Class<? extends Annotation> key = annotationEntry.getKey();
-            Class<?> value = annotationEntry.getValue();
-            if (m.isAnnotationPresent(key)) {
-               testListenerMethodValidity(m, value, key.getName());
-               m.setAccessible(true);
-               builder.setMethod(m);
-               addListenerInvocation(key, builder.build());
-               foundMethods = true;
+         // Skip bridge methods as we don't want to count them as well.
+         if (!m.isSynthetic() || !m.isBridge()) {
+            // loop through all valid method annotations
+            for (Map.Entry<Class<? extends Annotation>, Class<?>> annotationEntry : allowedListeners.entrySet()) {
+               final Class<? extends Annotation> annotationClass = annotationEntry.getKey();
+               if (m.isAnnotationPresent(annotationClass)) {
+                  final Class<?> eventClass = annotationEntry.getValue();
+                  testListenerMethodValidity(m, eventClass, annotationClass.getName());
+                  m.setAccessible(true);
+                  builder.setMethod(m);
+                  builder.setAnnotation(annotationClass);
+                  L invocation = builder.build();
+                  getListenerCollectionForAnnotation(annotationClass).add(invocation);
+                  foundMethods = true;
+               }
             }
          }
       }
@@ -193,11 +206,6 @@ public abstract class AbstractListenerImpl<T, L extends ListenerInvocation<T>> {
       if (!foundMethods)
          getLog().noAnnotateMethodsFoundInListener(listener.getClass());
       return foundMethods;
-   }
-
-   private void addListenerInvocation(Class<? extends Annotation> annotation, L li) {
-      List<L> result = getListenerCollectionForAnnotation(annotation);
-      result.add(li);
    }
 
    /**
@@ -209,7 +217,7 @@ public abstract class AbstractListenerImpl<T, L extends ListenerInvocation<T>> {
    protected static Listener testListenerClassValidity(Class<?> listenerClass) {
       Listener l = ReflectionUtil.getAnnotation(listenerClass, Listener.class);
       if (l == null)
-         throw new IncorrectListenerException(String.format("Cache listener class %s must be annotated with org.infinispan.notifications.annotation.Listener", listenerClass.getName()));
+         throw new IncorrectListenerException(String.format("Cache listener class %s must be annotated with org.infinispan.notifications.Listener", listenerClass.getName()));
       return l;
    }
 
@@ -251,7 +259,7 @@ public abstract class AbstractListenerImpl<T, L extends ListenerInvocation<T>> {
             public void run() {
                ClassLoader contextClassLoader = null;
                Transaction transaction = suspendIfNeeded();
-               if (classLoader != null && classLoader.get() != null) {
+               if (classLoader.get() != null) {
                   contextClassLoader = SecurityActions.setContextClassLoader(classLoader.get());
                }
                try {
@@ -286,10 +294,10 @@ public abstract class AbstractListenerImpl<T, L extends ListenerInvocation<T>> {
                      getLog().unableToInvokeListenerMethod(method, target, cause);
                   }
                } catch (IllegalAccessException exception) {
-                  getLog().unableToInvokeListenerMethod(method, target, exception);
+                  getLog().unableToInvokeListenerMethodAndRemoveListener(method, target, exception);
                   removeListener(target);
                } finally {
-                  if (classLoader != null && classLoader.get() != null) {
+                  if (classLoader.get() != null) {
                      SecurityActions.setContextClassLoader(contextClassLoader);
                   }
                   resumeIfNeeded(transaction);

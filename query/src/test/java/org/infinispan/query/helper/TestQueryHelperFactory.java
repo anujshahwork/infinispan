@@ -8,7 +8,7 @@ import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.util.Version;
-import org.hibernate.search.spi.SearchFactoryIntegrator;
+import org.hibernate.search.spi.SearchIntegrator;
 import org.infinispan.Cache;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
@@ -34,14 +34,14 @@ import java.util.List;
  */
 public class TestQueryHelperFactory {
    
-   public static final Analyzer STANDARD_ANALYZER = new StandardAnalyzer(getLuceneVersion());
+   public static final Analyzer STANDARD_ANALYZER = new StandardAnalyzer();
    
    public static QueryParser createQueryParser(String defaultFieldName) {
-      return new QueryParser(getLuceneVersion(), defaultFieldName, STANDARD_ANALYZER);
+      return new QueryParser(defaultFieldName, STANDARD_ANALYZER);
    }
    
    public static Version getLuceneVersion() {
-      return Version.LUCENE_48; //Change as needed
+      return Version.LATEST; //Change as needed
    }
 
    public static CacheQuery createCacheQuery(Cache m_cache, String fieldName, String searchString) throws ParseException {
@@ -52,9 +52,9 @@ public class TestQueryHelperFactory {
       return cacheQuery;
    }
    
-   public static SearchFactoryIntegrator extractSearchFactory(Cache cache) {
+   public static SearchIntegrator extractSearchFactory(Cache cache) {
       ComponentRegistry componentRegistry = cache.getAdvancedCache().getComponentRegistry();
-      SearchFactoryIntegrator component = componentRegistry.getComponent(SearchFactoryIntegrator.class);
+      SearchIntegrator component = componentRegistry.getComponent(SearchIntegrator.class);
       assertNotNull(component);
       return component;
    }
@@ -68,12 +68,15 @@ public class TestQueryHelperFactory {
       builder.indexing().index(indexLocalOnly ? Index.LOCAL : Index.ALL);
 
       if(isRamDirectoryProvider) {
-         builder.indexing().addProperty("default.directory_provider", "ram").addProperty("lucene_version", "LUCENE_CURRENT");
+         builder.indexing()
+            .addProperty("default.directory_provider", "ram")
+            .addProperty("lucene_version", "LUCENE_CURRENT")
+            .addProperty("error_handler", "org.infinispan.query.helper.StaticTestingErrorHandler");
       } else {
-         builder.indexing().addProperty("hibernate.search.default.indexmanager", "org.infinispan.query.indexmanager.InfinispanIndexManager")
-               .addProperty("default.directory_provider", "infinispan")
-               .addProperty("hibernate.search.default.exclusive_index_use", "false")
-               .addProperty("lucene_version", "LUCENE_48");
+         builder.indexing()
+            .addProperty("default.indexmanager", "org.infinispan.query.indexmanager.InfinispanIndexManager")
+            .addProperty("lucene_version", "LUCENE_CURRENT")
+            .addProperty("error_handler", "org.infinispan.query.helper.StaticTestingErrorHandler");
          if (cacheMode.isClustered()) {
             builder.clustering().stateTransfer().fetchInMemoryState(true);
          }

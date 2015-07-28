@@ -28,30 +28,32 @@
          oob_thread_pool.queue_max_size="100"
          oob_thread_pool.rejection_policy="Run"/>
 
-    <TCPPING timeout="3000"
+    <!--TCPPING timeout="3000"
              initial_hosts="127.0.0.1[7200]"
              port_range="3"
              ergonomics="false"
-            />
+            /-->
+    <org.infinispan.test.fwk.TEST_PING ergonomics="false" testName=""/>
 
 
     <!--<MPING timeout="1000"-->
            <!--num_initial_members="3"-->
            <!--break_on_coord_rsp="true"/>-->
-    <!--MERGE2 max_interval="30000"
-            min_interval="10000"/-->
+    <MERGE3 max_interval="5000"
+            min_interval="3000"/>
     <FD_SOCK bind_addr="127.0.0.1"/>
 
     <pbcast.NAKACK2 xmit_interval="1000"
-                    xmit_table_num_rows="100"
-                    xmit_table_msgs_per_row="10000"
+                    xmit_table_num_rows="50"
+                    xmit_table_msgs_per_row="1024"
                     xmit_table_max_compaction_time="30000"
-                    max_msg_batch_size="500"
+                    max_msg_batch_size="100"
                     use_mcast_xmit="false"
                     discard_delivered_msgs="true"/>
     <UNICAST3
-            xmit_table_num_rows="100"
-            xmit_table_msgs_per_row="2000"
+            xmit_interval="500"
+            xmit_table_num_rows="50"
+            xmit_table_msgs_per_row="1024"
             xmit_table_max_compaction_time="30000"
             max_msg_batch_size="100"
             conn_expiry_timeout="0"/>
@@ -63,8 +65,6 @@
     <pbcast.GMS print_local_addr="false" join_timeout="3000"
                 view_bundling="true"/>
 
-    <UFC max_credits="2M"
-         min_threshold="0.40"/>
     <MFC max_credits="2M"
          min_threshold="0.40"/>
 

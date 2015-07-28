@@ -36,7 +36,10 @@ import javax.transaction.Transaction;
 import javax.transaction.TransactionManager;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.infinispan.api.mvcc.LockAssert.assertNoLocks;
@@ -374,7 +377,8 @@ public class CacheLoaderFunctionalTest extends AbstractInfinispanTest {
       assertInCacheAndStore("k2", "v2", lifespan);
 
       tm.begin();
-      cache.clear();
+      cache.remove("k1");
+      cache.remove("k2");
       t = tm.suspend();
 
       assertInCacheAndStore("k1", "v1");
@@ -402,7 +406,8 @@ public class CacheLoaderFunctionalTest extends AbstractInfinispanTest {
       assertInCacheAndStore("k2", "v2", lifespan);
 
       tm.begin();
-      cache.clear();
+      cache.remove("k1");
+      cache.remove("k2");
       t = tm.suspend();
 
       assertInCacheAndStore("k1", "v1");
@@ -515,6 +520,23 @@ public class CacheLoaderFunctionalTest extends AbstractInfinispanTest {
       }
    }
 
+   public void testValuesForCacheLoader() {
+      cache.putIfAbsent("k1", "v1");
+      List<String> copy1 = copyValues(cache);
+      assertEquals(1, copy1.size());
+      assertEquals("v1", copy1.get(0));
+
+      cache.putIfAbsent("k2", "v2");
+      List<String> copy2 = copyValues(cache);
+      assertEquals(2, copy2.size());
+      assertEquals(Arrays.asList("v1", "v2"), copy2);
+   }
+
+   private List<String> copyValues(Cache<?, String> cache) {
+      return new ArrayList<>(cache.values());
+   }
+
+
    protected void doPreloadingTest(Configuration preloadingCfg, String cacheName) throws Exception {
       assertTrue("Preload not enabled for preload test", preloadingCfg.persistence().preload());
       cm.defineConfiguration(cacheName, preloadingCfg);
@@ -566,7 +588,7 @@ public class CacheLoaderFunctionalTest extends AbstractInfinispanTest {
       cm.defineConfiguration(cacheName, preloadingCfg);
 
       final Cache<String, String> preloadingCache = cm.getCache(cacheName);
-      final int expectedEntriesInContainer = Math.min(4, preloadingCfg.eviction().maxEntries());
+      final long expectedEntriesInContainer = Math.min(4l, preloadingCfg.eviction().maxEntries());
       AdvancedCacheLoader preloadingCacheLoader = (AdvancedCacheLoader) TestingUtil.getCacheLoader(preloadingCache);
 
       assertTrue("Preload not enabled in cache configuration",

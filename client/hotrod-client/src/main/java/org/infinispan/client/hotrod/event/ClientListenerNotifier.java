@@ -8,7 +8,6 @@ import org.infinispan.client.hotrod.exceptions.TransportException;
 import org.infinispan.client.hotrod.impl.operations.AddClientListenerOperation;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.transport.Transport;
-import org.infinispan.client.hotrod.impl.transport.TransportFactory;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.commons.equivalence.AnyEquivalence;
@@ -20,6 +19,8 @@ import org.infinispan.commons.util.Util;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.net.SocketAddress;
+import java.net.SocketTimeoutException;
+import java.nio.channels.CancelledKeyException;
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,7 +31,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.Executors;
 
 /**
  * @author Galder Zamarreño
@@ -55,10 +56,14 @@ public class ClientListenerNotifier {
    private final Codec codec;
    private final Marshaller marshaller;
 
-   public ClientListenerNotifier(ExecutorService executor, Codec codec, Marshaller marshaller) {
+   protected ClientListenerNotifier(ExecutorService executor, Codec codec, Marshaller marshaller) {
       this.executor = executor;
       this.codec = codec;
       this.marshaller = marshaller;
+   }
+
+   public static ClientListenerNotifier create(Codec codec, Marshaller marshaller) {
+      return new ClientListenerNotifier(Executors.newCachedThreadPool(), codec, marshaller);
    }
 
    public Marshaller getMarshaller() {
@@ -104,13 +109,9 @@ public class ClientListenerNotifier {
 
    private void invokeFailoverEvent(EventDispatcher dispatcher) {
       List<ClientListenerInvocation> callbacks = dispatcher.invocables.get(ClientCacheFailover.class);
-      for (ClientListenerInvocation callback : callbacks) {
-         callback.invoke(new ClientCacheFailoverEvent() {
-            @Override
-            public Type getType() {
-               return Type.CLIENT_CACHE_FAILOVER;
-            }
-         });
+      if (callbacks != null) {
+         for (ClientListenerInvocation callback : callbacks)
+            callback.invoke(ClientEvents.mkCachefailoverEvent());
       }
    }
 
@@ -132,6 +133,12 @@ public class ClientListenerNotifier {
             return dispatcher.op.listenerId;
       }
       return null;
+   }
+
+   public boolean isListenerConnected(byte[] listenerId) {
+      EventDispatcher dispatcher = clientListeners.get(listenerId);
+      // If listener not present, is not active
+      return dispatcher != null && !dispatcher.stopped;
    }
 
    public Transport findTransport(byte[] listenerId) {
@@ -212,6 +219,7 @@ public class ClientListenerNotifier {
       final Map<Class<? extends Annotation>, List<ClientListenerInvocation>> invocables;
       final AddClientListenerOperation op;
       final Transport transport;
+      volatile boolean stopped = false;
 
       private EventDispatcher(AddClientListenerOperation op,
             Map<Class<? extends Annotation>, List<ClientListenerInvocation>> invocables) {
@@ -222,32 +230,45 @@ public class ClientListenerNotifier {
 
       @Override
       public void run() {
-         try {
-            while (true) {
-               ClientEvent clientEvent = null;
-               try {
-                  clientEvent = codec.readEvent(transport, op.listenerId, marshaller);
-                  invokeClientEvent(clientEvent);
-                  // Nullify event, makes it easier to identify network vs invocation error messages
-                  clientEvent = null;
-               } catch (TransportException e) {
-                  if (e.getCause() instanceof ClosedChannelException)
-                     throw (ClosedChannelException) e.getCause();
-                  else if (clientEvent != null)
-                     log.unexpectedErrorConsumingEvent(clientEvent, e);
-                  else {
-                     log.unableToReadEventFromServer(e, transport.getRemoteSocketAddress());
-                     return; // Server is likely gone!
-                  }
-               } catch (Throwable t) {
-                  if (clientEvent != null)
-                     log.unexpectedErrorConsumingEvent(clientEvent, t);
-                  else
-                     log.unableToReadEventFromServer(t, transport.getRemoteSocketAddress());
+         Thread.currentThread().setName("Client-Listener-" + Util.toHexString(op.listenerId, 8));
+         while (!Thread.currentThread().isInterrupted()) {
+            ClientEvent clientEvent = null;
+            try {
+               clientEvent = codec.readEvent(transport, op.listenerId, marshaller);
+               invokeClientEvent(clientEvent);
+               // Nullify event, makes it easier to identify network vs invocation error messages
+               clientEvent = null;
+            } catch (TransportException e) {
+               Throwable cause = e.getCause();
+               if (cause instanceof ClosedChannelException) {
+                  // Channel closed, ignore and exit
+                  log.debug("Channel closed, exiting event reader thread");
+                  stopped = true;
+                  return;
+               } else if (cause instanceof SocketTimeoutException) {
+                  log.debug("Timed out reading event, retry");
+               } else if (clientEvent != null) {
+                  log.unexpectedErrorConsumingEvent(clientEvent, e);
+               }  else {
+                  log.unrecoverableErrorReadingEvent(e, transport.getRemoteSocketAddress());
+                  stopped = true;
+                  return; // Server is likely gone!
+               }
+            } catch (CancelledKeyException e) {
+               // Cancelled key exceptions are also thrown when the channel has been closed
+               log.debug("Key cancelled, most likely channel closed, exiting event reader thread");
+               stopped = true;
+               return;
+            } catch (Throwable t) {
+               if (clientEvent != null)
+                  log.unexpectedErrorConsumingEvent(clientEvent, t);
+               else
+                  log.unableToReadEventFromServer(t, transport.getRemoteSocketAddress());
+               if (!transport.isValid()) {
+                  stopped = true;
+                  return;
                }
             }
-         } catch (ClosedChannelException e) {
-            // Channel closed, ignore and exit
          }
       }
 

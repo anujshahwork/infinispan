@@ -8,8 +8,7 @@ import org.testng.annotations.Test;
  * @author anistor@redhat.com
  * @since 5.2
  */
-@Test(groups = "unstable", testName = "query.persistence.SharedCacheLoaderQueryDistributedIndexTest",
-      description = "ISPN-4048 -- original group: functional")
+@Test(groups = "functional", testName = "query.persistence.SharedCacheLoaderQueryDistributedIndexTest")
 public class SharedCacheLoaderQueryDistributedIndexTest extends SharedCacheLoaderQueryIndexTest {
 
    @Override
@@ -18,8 +17,6 @@ public class SharedCacheLoaderQueryDistributedIndexTest extends SharedCacheLoade
 
       builder.indexing().index(Index.LOCAL)
             .addProperty("default.directory_provider", "infinispan")
-            .addProperty("default.indexmanager", "org.infinispan.query.indexmanager.InfinispanIndexManager")
-            .addProperty("lucene_version", "LUCENE_48")
-            .addProperty("default.exclusive_index_use", "false");
+            .addProperty("default.indexmanager", "org.infinispan.query.indexmanager.InfinispanIndexManager");
    }
 }

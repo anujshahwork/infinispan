@@ -22,6 +22,8 @@ import org.infinispan.eviction.PassivationManager;
 import org.infinispan.eviction.impl.ActivationManagerImpl;
 import org.infinispan.eviction.impl.EvictionManagerImpl;
 import org.infinispan.eviction.impl.PassivationManagerImpl;
+import org.infinispan.expiration.ExpirationManager;
+import org.infinispan.expiration.impl.ExpirationManagerImpl;
 import org.infinispan.factories.annotations.DefaultFactoryFor;
 import org.infinispan.interceptors.locking.ClusteringDependentLogic;
 import org.infinispan.marshall.core.MarshalledEntryFactory;
@@ -59,7 +61,7 @@ import static org.infinispan.commons.util.Util.getInstance;
 @DefaultFactoryFor(classes = {CacheNotifier.class, ClusterCacheNotifier.class, CommandsFactory.class,
                               PersistenceManager.class, InvocationContextContainer.class,
                               PassivationManager.class, ActivationManager.class,
-                              BatchContainer.class, EvictionManager.class,
+                              BatchContainer.class, EvictionManager.class, ExpirationManager.class,
                               TransactionCoordinator.class, RecoveryAdminOperations.class, StateTransferLock.class,
                               ClusteringDependentLogic.class, L1Manager.class, TransactionFactory.class, BackupSender.class,
                               TotalOrderManager.class, ByteBufferFactory.class, MarshalledEntryFactory.class,
@@ -110,6 +112,8 @@ public class EmptyConstructorNamedCacheFactory extends AbstractNamedCacheCompone
             return (T) new StateTransferLockImpl();
          } else if (componentType.equals(EvictionManager.class)) {
             return (T) new EvictionManagerImpl();
+         } else if (componentType.equals(ExpirationManager.class)) {
+            return (T) new ExpirationManagerImpl();
          } else if (componentType.equals(L1Manager.class)) {
             return (T) new L1ManagerImpl();
          } else if (componentType.equals(TransactionFactory.class)) {
@@ -117,7 +121,8 @@ public class EmptyConstructorNamedCacheFactory extends AbstractNamedCacheCompone
          } else if (componentType.equals(BackupSender.class)) {
             return (T) new BackupSenderImpl(globalConfiguration.sites().localSite());
          } else if (componentType.equals(TotalOrderManager.class)) {
-            return (T) new TotalOrderManager();
+            return isTransactional && configuration.transaction().transactionProtocol().isTotalOrder() ?
+                  (T) new TotalOrderManager() : null;
          } else if (componentType.equals(ByteBufferFactory.class)) {
             return (T) new ByteBufferFactoryImpl();
          } else if (componentType.equals(MarshalledEntryFactory.class)) {
@@ -130,7 +135,7 @@ public class EmptyConstructorNamedCacheFactory extends AbstractNamedCacheCompone
          } else if (componentType.equals(CommitManager.class)) {
             return (T) new CommitManager(configuration.dataContainer().keyEquivalence());
          } else if (componentType.equals(XSiteStateTransferManager.class)) {
-            return (T) new XSiteStateTransferManagerImpl();
+            return (T) (configuration.sites().allBackups().isEmpty() ? null : new XSiteStateTransferManagerImpl());
          } else if (componentType.equals(XSiteStateConsumer.class)) {
             return (T) new XSiteStateConsumerImpl();
          } else if (componentType.equals(XSiteStateProvider.class)) {

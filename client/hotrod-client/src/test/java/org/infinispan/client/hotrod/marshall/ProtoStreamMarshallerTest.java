@@ -2,13 +2,15 @@ package org.infinispan.client.hotrod.marshall;
 
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
-import org.infinispan.client.hotrod.TestHelper;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
+import org.infinispan.client.hotrod.query.testdomain.protobuf.AddressPB;
+import org.infinispan.client.hotrod.query.testdomain.protobuf.UserPB;
+import org.infinispan.client.hotrod.query.testdomain.protobuf.marshallers.MarshallerRegistration;
+import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.protostream.ProtobufUtil;
-import org.infinispan.protostream.sampledomain.Address;
-import org.infinispan.protostream.sampledomain.User;
-import org.infinispan.protostream.sampledomain.marshallers.MarshallerRegistration;
+import org.infinispan.query.dsl.embedded.testdomain.Address;
+import org.infinispan.query.dsl.embedded.testdomain.User;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.test.SingleCacheManagerTest;
 import org.infinispan.test.fwk.CleanupAfterMethod;
@@ -42,7 +44,7 @@ public class ProtoStreamMarshallerTest extends SingleCacheManagerTest {
       cacheManager = TestCacheManagerFactory.createCacheManager(hotRodCacheConfiguration());
       cache = cacheManager.getCache();
 
-      hotRodServer = TestHelper.startHotRodServer(cacheManager);
+      hotRodServer = HotRodClientTestingUtil.startHotRodServer(cacheManager);
 
       ConfigurationBuilder clientBuilder = new ConfigurationBuilder();
       clientBuilder.addServer().host("127.0.0.1").port(hotRodServer.getPort());
@@ -83,13 +85,13 @@ public class ProtoStreamMarshallerTest extends SingleCacheManagerTest {
    }
 
    private User createUser() {
-      User user = new User();
+      User user = new UserPB();
       user.setId(1);
       user.setName("Tom");
       user.setSurname("Cat");
       user.setGender(User.Gender.MALE);
-      user.setAccountIds(Collections.singletonList(12));
-      Address address = new Address();
+      user.setAccountIds(Collections.singleton(12));
+      Address address = new AddressPB();
       address.setStreet("Dark Alley");
       address.setPostCode("1234");
       user.setAddresses(Collections.singletonList(address));
@@ -104,7 +106,7 @@ public class ProtoStreamMarshallerTest extends SingleCacheManagerTest {
       assertEquals(User.Gender.MALE, user.getGender());
       assertNotNull(user.getAccountIds());
       assertEquals(1, user.getAccountIds().size());
-      assertEquals(12, user.getAccountIds().get(0).intValue());
+      assertTrue(user.getAccountIds().contains(12));
       assertNotNull(user.getAddresses());
       assertEquals(1, user.getAddresses().size());
       assertEquals("Dark Alley", user.getAddresses().get(0).getStreet());

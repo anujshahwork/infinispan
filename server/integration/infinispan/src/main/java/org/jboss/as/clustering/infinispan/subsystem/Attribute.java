@@ -22,12 +22,11 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import javax.xml.XMLConstants;
+import org.jboss.as.controller.AttributeDefinition;
 
+import javax.xml.XMLConstants;
 import java.util.HashMap;
 import java.util.Map;
-
-import org.jboss.as.controller.AttributeDefinition;
 
 /**
  * Enumerates the attributes used in the Infinispan subsystem schema.
@@ -42,7 +41,9 @@ public enum Attribute {
     ALIASES(ModelKeys.ALIASES),
     APPEND_CACHE_NAME_TO_PATH(ModelKeys.APPEND_CACHE_NAME_TO_PATH),
     ASYNC_MARSHALLING(ModelKeys.ASYNC_MARSHALLING),
+    ASYNC_EXECUTOR(ModelKeys.ASYNC_EXECUTOR),
     AUDIT_LOGGER(ModelKeys.AUDIT_LOGGER),
+    AUTO_CONFIG(ModelKeys.AUTO_CONFIG),
     AWAIT_INITIAL_TRANSFER(ModelKeys.AWAIT_INITIAL_TRANSFER),
     BACKUP_FAILURE_POLICY(ModelKeys.BACKUP_FAILURE_POLICY),
     BATCH_SIZE(ModelKeys.BATCH_SIZE),
@@ -52,19 +53,24 @@ public enum Attribute {
     CACHE(ModelKeys.CACHE),
     CACHE_SIZE(ModelKeys.CACHE_SIZE),
     CAPACITY_FACTOR(ModelKeys.CAPACITY_FACTOR),
+    CHANNEL(ModelKeys.CHANNEL),
     CHUNK_SIZE(ModelKeys.CHUNK_SIZE),
     CLASS(ModelKeys.CLASS),
     CLEAR_THRESHOLD(ModelKeys.CLEAR_THRESHOLD),
     CLUSTER(ModelKeys.CLUSTER),
     CONCURRENCY_LEVEL(ModelKeys.CONCURRENCY_LEVEL),
     CONNECTION_TIMEOUT(ModelKeys.CONNECTION_TIMEOUT),
+    CREATE_ON_START(ModelKeys.CREATE_ON_START),
     DATASOURCE(ModelKeys.DATASOURCE),
     DEFAULT_CACHE(ModelKeys.DEFAULT_CACHE),
     @Deprecated DEFAULT_CACHE_CONTAINER("default-cache-container"),
     DIALECT(ModelKeys.DIALECT),
+    DROP_ON_EXIT(ModelKeys.DROP_ON_EXIT),
     @Deprecated EAGER_LOCKING("eager-locking"),
     ENABLED(ModelKeys.ENABLED),
+    @Deprecated
     EVICTION_EXECUTOR(ModelKeys.EVICTION_EXECUTOR),
+    EXPIRATION_EXECUTOR(ModelKeys.EXPIRATION_EXECUTOR),
     EXECUTOR(ModelKeys.EXECUTOR),
     FETCH_SIZE(ModelKeys.FETCH_SIZE),
     FETCH_STATE(ModelKeys.FETCH_STATE),
@@ -87,12 +93,14 @@ public enum Attribute {
     MAX_CONNECTIONS_PER_HOST(ModelKeys.MAX_CONNECTIONS_PER_HOST),
     MAX_ENTRIES(ModelKeys.MAX_ENTRIES),
     MAX_IDLE(ModelKeys.MAX_IDLE),
+    MAX_RETRIES(ModelKeys.MAX_RETRIES),
     MAX_TOTAL_CONNECTIONS(ModelKeys.MAX_TOTAL_CONNECTIONS),
     MODE(ModelKeys.MODE),
     MODIFICATION_QUEUE_SIZE(ModelKeys.MODIFICATION_QUEUE_SIZE),
     MODULE(ModelKeys.MODULE),
     NAME(ModelKeys.NAME),
     NAMESPACE(XMLConstants.XMLNS_ATTRIBUTE),
+    NOTIFICATIONS(ModelKeys.NOTIFICATIONS),
     OUTBOUND_SOCKET_BINDING(ModelKeys.OUTBOUND_SOCKET_BINDING),
     OWNERS(ModelKeys.OWNERS),
     PASSIVATION(ModelKeys.PASSIVATION),
@@ -107,6 +115,9 @@ public enum Attribute {
     RAW_VALUES(ModelKeys.RAW_VALUES),
     READ_ONLY(ModelKeys.READ_ONLY),
     RELATIVE_TO(ModelKeys.RELATIVE_TO),
+    REMOTE_CACHE(ModelKeys.REMOTE_CACHE),
+    REMOTE_COMMAND_EXECUTOR(ModelKeys.REMOTE_COMMAND_EXECUTOR),
+    REMOTE_SITE(ModelKeys.REMOTE_SITE),
     REMOTE_TIMEOUT(ModelKeys.REMOTE_TIMEOUT),
     REPLICATION_QUEUE_EXECUTOR(ModelKeys.REPLICATION_QUEUE_EXECUTOR),
     ROLES(ModelKeys.ROLES),
@@ -115,10 +126,13 @@ public enum Attribute {
     SHUTDOWN_TIMEOUT(ModelKeys.SHUTDOWN_TIMEOUT),
     SINGLETON(ModelKeys.SINGLETON),
     SITE(ModelKeys.SITE),
+    SIZE(ModelKeys.SIZE),
     SOCKET_TIMEOUT(ModelKeys.SOCKET_TIMEOUT),
     STACK(ModelKeys.STACK),
     START(ModelKeys.START),
+    STATE_TRANSFER_EXECUTOR(ModelKeys.STATE_TRANSFER_EXECUTOR),
     STATISTICS(ModelKeys.STATISTICS),
+    STATISTICS_AVAILABLE(ModelKeys.STATISTICS_AVAILABLE),
     STRICT_PEER_TO_PEER(ModelKeys.STRICT_PEER_TO_PEER),
     STOP_TIMEOUT(ModelKeys.STOP_TIMEOUT),
     STRATEGY(ModelKeys.STRATEGY),
@@ -128,8 +142,10 @@ public enum Attribute {
     TCP_NO_DELAY(ModelKeys.TCP_NO_DELAY),
     THREAD_POOL_SIZE(ModelKeys.THREAD_POOL_SIZE),
     TIMEOUT(ModelKeys.TIMEOUT),
+    TOTAL_ORDER_EXECUTOR(ModelKeys.TOTAL_ORDER_EXECUTOR),
     TYPE(ModelKeys.TYPE),
-    @Deprecated VIRTUAL_NODES("virtual-nodes")
+    @Deprecated VIRTUAL_NODES("virtual-nodes"),
+    WAIT_TIME(ModelKeys.WAIT_TIME),
     ;
 
     private final String name;

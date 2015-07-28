@@ -1,5 +1,6 @@
 package org.infinispan.commands.write;
 
+import org.infinispan.commands.CommandInvocationId;
 import org.infinispan.commands.MetadataAwareCommand;
 import org.infinispan.commands.Visitor;
 import org.infinispan.commons.equivalence.Equivalence;
@@ -35,8 +36,9 @@ public class ReplaceCommand extends AbstractDataWriteCommand implements Metadata
    }
 
    public ReplaceCommand(Object key, Object oldValue, Object newValue,
-         CacheNotifier notifier, Metadata metadata, Set<Flag> flags, Equivalence valueEquivalence) {
-      super(key, flags);
+                         CacheNotifier notifier, Metadata metadata, Set<Flag> flags, Equivalence valueEquivalence,
+                         CommandInvocationId commandInvocationId) {
+      super(key, flags, commandInvocationId);
       this.oldValue = oldValue;
       this.newValue = newValue;
       this.notifier = notifier;
@@ -63,18 +65,19 @@ public class ReplaceCommand extends AbstractDataWriteCommand implements Metadata
          return null;
       }
       MVCCEntry e = (MVCCEntry) ctx.lookupEntry(key);
-      if (valueMatcher.matches(e, oldValue, newValue, valueEquivalence)) {
+      // We need the null check as in non-tx caches we don't always wrap the entry on the origin
+      if (e != null && valueMatcher.matches(e, oldValue, newValue, valueEquivalence)) {
          e.setChanged(true);
          Object old = e.setValue(newValue);
          if (valueMatcher != ValueMatcher.MATCH_EXPECTED_OR_NEW) {
-            return returnValue(old, true, ctx);
+            return returnValue(old, e.getMetadata(), true, ctx);
          } else {
             // Return the expected value when retrying
-            return returnValue(oldValue, true, ctx);
+            return returnValue(oldValue, e.getMetadata(), true, ctx);
          }
       }
 
-      return returnValue(null, false, ctx);
+      return returnValue(null, null, false, ctx);
    }
 
    @SuppressWarnings("unchecked")
@@ -85,15 +88,14 @@ public class ReplaceCommand extends AbstractDataWriteCommand implements Metadata
       return oldValue.equals(newValue);
    }
 
-   private Object returnValue(Object beingReplaced, boolean successful, 
+   private Object returnValue(Object beingReplaced, Metadata previousMetadata, boolean successful,
          InvocationContext ctx) {
       this.successful = successful;
       
       Object previousValue = oldValue == null ? beingReplaced : oldValue;
 
       if (successful) {
-         notifier.notifyCacheEntryModified(
-               key, previousValue, previousValue == null, true, ctx, this);
+         notifier.notifyCacheEntryModified(key, newValue, previousValue, previousMetadata, true, ctx, this);
       }
 
       if (oldValue == null) {
@@ -110,8 +112,7 @@ public class ReplaceCommand extends AbstractDataWriteCommand implements Metadata
 
    @Override
    public Object[] getParameters() {
-      return new Object[]{key, oldValue, newValue, metadata, valueMatcher,
-                          Flag.copyWithoutRemotableFlags(flags)};
+      return new Object[]{key, oldValue, newValue, metadata, valueMatcher, Flag.copyWithoutRemotableFlags(flags), commandInvocationId};
    }
 
    @Override
@@ -124,6 +125,7 @@ public class ReplaceCommand extends AbstractDataWriteCommand implements Metadata
       metadata = (Metadata) parameters[3];
       valueMatcher = (ValueMatcher) parameters[4];
       flags = (Set<Flag>) parameters[5];
+      commandInvocationId = (CommandInvocationId) parameters[6];
    }
 
    @Override

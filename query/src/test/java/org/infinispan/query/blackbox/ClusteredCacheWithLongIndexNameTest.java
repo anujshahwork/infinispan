@@ -26,7 +26,7 @@ import static org.junit.Assert.assertEquals;
  *
  * @author Anna Manukyan
  */
-@Test(groups = "functional", testName = "query.blackbox.ClusteredCacheWithLongIndexNameTest")
+@Test(groups="functional", testName = "query.blackbox.ClusteredCacheWithLongIndexNameTest")
 @CleanupAfterMethod
 public class ClusteredCacheWithLongIndexNameTest extends MultipleCacheManagersTest {
    private Cache cache1, cache2, cache3;

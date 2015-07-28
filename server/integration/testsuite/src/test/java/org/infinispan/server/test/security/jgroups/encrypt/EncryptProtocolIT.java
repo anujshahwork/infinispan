@@ -1,9 +1,12 @@
+
 package org.infinispan.server.test.security.jgroups.encrypt;
 
 import static org.infinispan.server.test.util.ITestUtils.SERVER1_MGMT_PORT;
 import static org.infinispan.server.test.util.ITestUtils.SERVER2_MGMT_PORT;
 import static org.infinispan.server.test.util.ITestUtils.getAttribute;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import java.io.File;
 import java.io.IOException;
@@ -14,6 +17,7 @@ import org.infinispan.arquillian.core.RemoteInfinispanServers;
 import org.infinispan.arquillian.core.RunningServer;
 import org.infinispan.arquillian.core.WithRunningServer;
 import org.infinispan.arquillian.utils.MBeanServerConnectionProvider;
+import org.infinispan.server.test.category.Security;
 import org.infinispan.server.test.client.memcached.MemcachedClient;
 import org.infinispan.server.test.util.RemoteInfinispanMBeans;
 import org.jboss.arquillian.container.test.api.ContainerController;
@@ -21,10 +25,8 @@ import org.jboss.arquillian.junit.Arquillian;
 import org.jboss.arquillian.test.api.ArquillianResource;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
-
-import static org.infinispan.server.test.util.ITestUtils.getAttribute;
-import static org.junit.Assert.assertEquals;
 
 /**
  * Test JGroups' ENCRYPT protocol. Only proper registration of the protocol is tested, making
@@ -39,6 +41,7 @@ import static org.junit.Assert.assertEquals;
  * @author Martin Gencur
  */
 @RunWith(Arquillian.class)
+@Category({ Security.class })
 public class EncryptProtocolIT {
 
     @InfinispanResource
@@ -50,7 +53,10 @@ public class EncryptProtocolIT {
     final String COORDINATOR_NODE = "clustered-encrypt-1";
     final String JOINING_NODE = "clustered-encrypt-2";
 
-    final String ENCRYPT_MBEAN = "jgroups:type=protocol,cluster=\"clustered\",protocol=ENCRYPT";
+    final String ENCRYPT_MBEAN = "jgroups:type=protocol,cluster=\"cluster\",protocol=ENCRYPT";
+    final String ENCRYPT_PROPERTY_KEY = "key_store_name";
+    final String ENCRYPT_PROPERTY_VALUE_SUFFIX = "server_jceks.keystore";
+    final String ENCRYPT_PASSWORD_KEY = "store_password";
 
     @BeforeClass
     public static void before() {
@@ -92,8 +98,11 @@ public class EncryptProtocolIT {
             assertEquals(2, friend.manager.getClusterSize());
 
             //check that ENCRYPT protocol is registered with JGroups
-            assertEquals("secret", getAttribute(providerCoordinator, ENCRYPT_MBEAN, "store_password"));
-            assertEquals("secret", getAttribute(providerFriend, ENCRYPT_MBEAN, "store_password"));
+            assertTrue(getAttribute(providerCoordinator, ENCRYPT_MBEAN, ENCRYPT_PROPERTY_KEY).endsWith(ENCRYPT_PROPERTY_VALUE_SUFFIX));
+            assertTrue(getAttribute(providerFriend, ENCRYPT_MBEAN, ENCRYPT_PROPERTY_KEY).endsWith(ENCRYPT_PROPERTY_VALUE_SUFFIX));
+
+            //JGRP-1854: check that ENCRYPT password is not visible via JMX
+            assertNull(getAttribute(providerCoordinator, ENCRYPT_MBEAN, ENCRYPT_PASSWORD_KEY));
 
             mcFriend.set("key1", "value1");
             assertEquals("Could not read replicated pair key1/value1", "value1", mcCoordinator.get("key1"));
@@ -101,5 +110,4 @@ public class EncryptProtocolIT {
             controller.stop(JOINING_NODE);
         }
     }
-
 }

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <infinispan
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-      xsi:schemaLocation="urn:infinispan:config:7.0 http://www.infinispan.org/schemas/infinispan-config-7.0.xsd"
-      xmlns="urn:infinispan:config:7.0">
+      xsi:schemaLocation="urn:infinispan:config:8.0 http://www.infinispan.org/schemas/infinispan-config-8.0.xsd"
+      xmlns="urn:infinispan:config:8.0">
 
    <cache-container default-cache="default">
-      <local-cache name="default" batching="true">
-         <transaction mode="NON_XA" stop-timeout="2"/>
+      <local-cache name="default">
+         <transaction mode="BATCH" stop-timeout="2"/>
       </local-cache>
       <local-cache name="tml">
          <transaction mode="NON_XA" transaction-manager-lookup="org.infinispan.transaction.lookup.DummyTransactionManagerLookup" stop-timeout="2"/>

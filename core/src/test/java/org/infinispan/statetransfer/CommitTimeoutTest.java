@@ -14,6 +14,7 @@ import org.infinispan.util.ControlledConsistentHashFactory;
 import org.infinispan.util.concurrent.locks.LockManager;
 import org.testng.annotations.Test;
 
+import javax.transaction.RollbackException;
 import java.util.Arrays;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
@@ -29,7 +30,7 @@ import static org.testng.AssertJUnit.assertTrue;
  * Test that a commit command that has timed out on a backup owner cannot write entries after the locks have been
  * released on the primary owner.
  */
-@Test(groups = "functional", testName = "statetransfer.CommitReplayTest")
+@Test(groups = "functional", testName = "statetransfer.CommitTimeoutTest")
 @CleanupAfterMethod
 public class CommitTimeoutTest extends MultipleCacheManagersTest {
 
@@ -87,7 +88,11 @@ public class CommitTimeoutTest extends MultipleCacheManagersTest {
 
       tm(0).begin();
       cache(0).put(TEST_KEY, TX1_VALUE);
-      tm(0).commit();
+      try {
+         tm(0).commit();
+      } catch (RollbackException e) {
+         log.debugf("Commit timed out as expected", e);
+      }
 
       sequencer.advance("tx2:begin");
       LockManager lockManager1 = TestingUtil.extractLockManager(cache(1));

@@ -3,11 +3,15 @@ package org.jboss.as.clustering.infinispan.subsystem;
 import static org.jboss.as.controller.descriptions.ModelDescriptionConstants.OP_ADDR;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.server.infinispan.SecurityActions;
-import org.jboss.as.clustering.infinispan.DefaultEmbeddedCacheManager;
+import org.infinispan.server.infinispan.spi.service.CacheContainerServiceName;
+import org.infinispan.stats.CacheContainerStats;
+import org.infinispan.Version;
+import org.jboss.as.clustering.infinispan.DefaultCacheContainer;
 import org.jboss.as.controller.AbstractRuntimeOnlyHandler;
 import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.OperationContext;
@@ -26,9 +30,33 @@ public class CacheContainerMetricsHandler extends AbstractRuntimeOnlyHandler {
     public enum CacheManagerMetrics {
         CACHE_MANAGER_STATUS(MetricKeys.CACHE_MANAGER_STATUS, ModelType.STRING, true),
         CLUSTER_NAME(MetricKeys.CLUSTER_NAME, ModelType.STRING, true, true),
+        CLUSTER_AVAILABILITY(MetricKeys.CLUSTER_AVAILABILITY, ModelType.STRING, true, true),
         IS_COORDINATOR(MetricKeys.IS_COORDINATOR, ModelType.BOOLEAN, true, true),
         COORDINATOR_ADDRESS(MetricKeys.COORDINATOR_ADDRESS, ModelType.STRING, true, true),
-        LOCAL_ADDRESS(MetricKeys.LOCAL_ADDRESS, ModelType.STRING, true, true);
+        LOCAL_ADDRESS(MetricKeys.LOCAL_ADDRESS, ModelType.STRING, true, true),
+        DEFINED_CACHE_NAMES(MetricKeys.DEFINED_CACHE_NAMES, ModelType.INT, true, true),
+        DEFINED_CACHE_COUNT(MetricKeys.DEFINED_CACHE_COUNT, ModelType.INT, true, true),
+        RUNNING_CACHE_COUNT(MetricKeys.RUNNING_CACHE_COUNT, ModelType.INT, true, true),
+        CREATED_CACHE_COUNT(MetricKeys.CREATED_CACHE_COUNT, ModelType.INT, true, true),
+        MEMBERS(MetricKeys.MEMBERS, ModelType.INT, true, true),
+        CLUSTER_SIZE(MetricKeys.CLUSTER_SIZE, ModelType.INT, true, true),
+        VERSION(MetricKeys.VERSION, ModelType.INT, true, true),
+
+        // see org.infinispan.stats.CacheContainerStats
+        AVERAGE_READ_TIME(MetricKeys.AVERAGE_READ_TIME, ModelType.LONG, true),
+        AVERAGE_WRITE_TIME(MetricKeys.AVERAGE_WRITE_TIME, ModelType.LONG, true),
+        AVERAGE_REMOVE_TIME(MetricKeys.AVERAGE_REMOVE_TIME, ModelType.LONG, true),
+        TIME_SINCE_START(MetricKeys.TIME_SINCE_START, ModelType.LONG, true),
+        EVICTIONS(MetricKeys.EVICTIONS, ModelType.LONG, true),
+        HIT_RATIO(MetricKeys.HIT_RATIO, ModelType.DOUBLE, true),
+        HITS(MetricKeys.HITS, ModelType.LONG, true),
+        MISSES(MetricKeys.MISSES, ModelType.LONG, true),
+        NUMBER_OF_ENTRIES(MetricKeys.NUMBER_OF_ENTRIES, ModelType.INT, true),
+        READ_WRITE_RATIO(MetricKeys.READ_WRITE_RATIO, ModelType.DOUBLE, true),
+        REMOVE_HITS(MetricKeys.REMOVE_HITS, ModelType.LONG, true),
+        REMOVE_MISSES(MetricKeys.REMOVE_MISSES, ModelType.LONG, true),
+        STORES(MetricKeys.STORES, ModelType.LONG, true),
+        TIME_SINCE_RESET(MetricKeys.TIME_SINCE_RESET, ModelType.LONG, true);
 
         private static final Map<String, CacheManagerMetrics> MAP = new HashMap<String, CacheManagerMetrics>();
 
@@ -78,8 +106,8 @@ public class CacheContainerMetricsHandler extends AbstractRuntimeOnlyHandler {
         final PathAddress address = PathAddress.pathAddress(operation.require(OP_ADDR));
         final String cacheContainerName = address.getLastElement().getValue();
         final String attrName = operation.require(ModelDescriptionConstants.NAME).asString();
-        final ServiceController<?> controller = context.getServiceRegistry(false).getService(EmbeddedCacheManagerService.getServiceName(cacheContainerName));
-        DefaultEmbeddedCacheManager cacheManager = (DefaultEmbeddedCacheManager) controller.getValue();
+        final ServiceController<?> controller = context.getServiceRegistry(false).getService(CacheContainerServiceName.CACHE_CONTAINER.getServiceName(cacheContainerName));
+        DefaultCacheContainer cacheManager = (DefaultCacheContainer) controller.getValue();
 
         CacheManagerMetrics metric = CacheManagerMetrics.getStat(attrName);
         ModelNode result = new ModelNode();
@@ -89,9 +117,10 @@ public class CacheContainerMetricsHandler extends AbstractRuntimeOnlyHandler {
         } else if (cacheManager == null) {
             context.getFailureDescription().set(String.format("Unavailable cache container %s", attrName));
         } else {
+            CacheContainerStats stats = cacheManager.getStats();
             switch (metric) {
                 case CACHE_MANAGER_STATUS:
-                result.set(SecurityActions.getCacheManagerStatus(cacheManager).toString());
+                    result.set(SecurityActions.getCacheManagerStatus(cacheManager).toString());
                     break;
                 case IS_COORDINATOR:
                     result.set(SecurityActions.getCacheManagerIsCoordinator(cacheManager));
@@ -104,9 +133,82 @@ public class CacheContainerMetricsHandler extends AbstractRuntimeOnlyHandler {
                     Address coordinatorAddress = SecurityActions.getCacheManagerCoordinatorAddress(cacheManager);
                     result.set(coordinatorAddress != null ? coordinatorAddress.toString() : "N/A");
                     break;
+                case CLUSTER_AVAILABILITY:
+                    result.set(SecurityActions.getCacheManagerClusterAvailability(cacheManager));
+                    break;
                 case CLUSTER_NAME:
                     String clusterName = SecurityActions.getCacheManagerClusterName(cacheManager);
                     result.set(clusterName != null ? clusterName : "N/A");
+                    break;
+                case DEFINED_CACHE_NAMES:
+                    String definedCacheNames = SecurityActions.getDefinedCacheNames(cacheManager);
+                    result.set(definedCacheNames != null ? definedCacheNames : "N/A");
+                    break;
+                case CLUSTER_SIZE:
+                    List<Address> members = SecurityActions.getMembers(cacheManager);
+                    result.set(members != null ? Integer.toString(members.size()) : "N/A");
+                    break;
+                case CREATED_CACHE_COUNT:
+                    result.set(SecurityActions.getCacheCreatedCount(cacheManager));
+                    break;
+                case DEFINED_CACHE_COUNT:
+                    result.set(SecurityActions.getDefinedCacheCount(cacheManager));
+                    break;
+                case MEMBERS:
+                    members = SecurityActions.getMembers(cacheManager);
+                    result.set(members != null ? members.toString() : "N/A");
+                    break;
+                case RUNNING_CACHE_COUNT:
+                    result.set(SecurityActions.getRunningCacheCount(cacheManager));
+                    break;
+                case VERSION:
+                    result.set(Version.getVersion());
+                    break;
+                case AVERAGE_READ_TIME:
+                   result.set(stats.getAverageReadTime());
+                   break;
+                case AVERAGE_WRITE_TIME:
+                   result.set(stats.getAverageWriteTime());
+                   break;
+                case AVERAGE_REMOVE_TIME:
+                   result.set(stats.getAverageRemoveTime());
+                   break;
+                case TIME_SINCE_START:
+                   result.set(stats.getTimeSinceStart());
+                   break;
+                case EVICTIONS:
+                   result.set(stats.getEvictions());
+                   break;
+                case HIT_RATIO:
+                   result.set(stats.getHitRatio());
+                   break;
+                case HITS:
+                   result.set(stats.getHits());
+                   break;
+                case MISSES:
+                   result.set(stats.getMisses());
+                   break;
+                case NUMBER_OF_ENTRIES:
+                   result.set(stats.getCurrentNumberOfEntries());
+                   break;
+                case READ_WRITE_RATIO:
+                   result.set(stats.getReadWriteRatio());
+                   break;
+                case REMOVE_HITS:
+                   result.set(stats.getHits());
+                   break;
+                case REMOVE_MISSES:
+                   result.set(stats.getRemoveMisses());
+                   break;
+                case STORES:
+                   result.set(stats.getStores());
+                   break;
+                case TIME_SINCE_RESET:
+                   result.set(stats.getTimeSinceStart());
+                   break;
+                default:
+                    context.getFailureDescription().set(String.format("Unknown metric %s", metric));
+                    break;
             }
             context.getResult().set(result);
         }

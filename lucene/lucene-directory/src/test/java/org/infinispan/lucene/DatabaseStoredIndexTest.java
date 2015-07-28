@@ -15,6 +15,7 @@ import org.apache.lucene.store.Directory;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.context.Flag;
+import org.infinispan.lucene.testutils.TestSegmentReadLocker;
 import org.infinispan.persistence.jdbc.configuration.JdbcStringBasedStoreConfigurationBuilder;
 import org.infinispan.lucene.directory.DirectoryBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
@@ -33,7 +34,7 @@ import org.testng.annotations.Test;
  * @since 4.1
  */
 @SuppressWarnings("unchecked")
-@Test(groups = "unstable", testName = "lucene.DatabaseStoredIndexTest", description = "original group: functional")
+@Test(groups = "functional", testName = "lucene.DatabaseStoredIndexTest")
 public class DatabaseStoredIndexTest extends SingleCacheManagerTest {
 
    private static final String DB_URL = "jdbc:h2:mem:infinispan;DB_CLOSE_DELAY=0";
@@ -84,7 +85,9 @@ public class DatabaseStoredIndexTest extends SingleCacheManagerTest {
    @Test
    public void testIndexUsage() throws IOException {
       cache = cacheManager.getCache();
-      Directory dir = DirectoryBuilder.newDirectoryInstance(cache, cache, cache, INDEX_NAME).create();
+      TestSegmentReadLocker testSegmentReadLocker = new TestSegmentReadLocker(cache, cache, cache, INDEX_NAME);
+      Directory dir = DirectoryBuilder.newDirectoryInstance(cache, cache, cache, INDEX_NAME)
+            .overrideSegmentReadLocker(testSegmentReadLocker).create();
       writeTextToIndex(dir, 0, "hello database");
       assertTextIsFoundInIds(dir, "hello", 0);
       writeTextToIndex(dir, 1, "you have to store my index segments");
@@ -107,7 +110,7 @@ public class DatabaseStoredIndexTest extends SingleCacheManagerTest {
       boolean failed = false;
       for (Object key : cacheCopy.keySet()) {
          if (key instanceof FileReadLockKey) {
-            System.out.println("Key found in store, shouldn't have persisted this or should have cleaned up all readlocks on directory close:" + key);
+            log.error("Key found in store, shouldn't have persisted this or should have cleaned up all readlocks on directory close:" + key);
             failed = true;
          }
          else {
@@ -120,7 +123,7 @@ public class DatabaseStoredIndexTest extends SingleCacheManagerTest {
                actual = Util.printArray((byte[]) actual, false);
             }
             if (expected == null || ! expected.equals(actual)) {
-               System.out.println("Failure on key["+key.toString()+"] expected value:\n\t"+expected+"\tactual value:\n\t"+actual);
+               log.error("Failure on key["+key.toString()+"] expected value:\n\t"+expected+"\tactual value:\n\t"+actual);
                failed = true;
             }
          }

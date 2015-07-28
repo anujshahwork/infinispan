@@ -1,16 +1,40 @@
 package org.infinispan.interceptors;
 
+import static org.infinispan.factories.KnownComponentNames.CACHE_MARSHALLER;
+import static org.infinispan.marshall.core.MarshalledValue.isTypeExcluded;
+
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.Spliterator;
+import java.util.Spliterators;
+import java.util.stream.StreamSupport;
+
+import org.infinispan.Cache;
+import org.infinispan.CacheCollection;
+import org.infinispan.CacheSet;
+import org.infinispan.CacheStream;
 import org.infinispan.commands.control.LockControlCommand;
+import org.infinispan.commands.read.AbstractDataCommand;
 import org.infinispan.commands.read.EntrySetCommand;
+import org.infinispan.commands.read.GetCacheEntryCommand;
 import org.infinispan.commands.read.GetKeyValueCommand;
+import org.infinispan.commands.read.GetAllCommand;
 import org.infinispan.commands.read.KeySetCommand;
-import org.infinispan.commands.read.ValuesCommand;
 import org.infinispan.commands.write.PutKeyValueCommand;
 import org.infinispan.commands.write.PutMapCommand;
 import org.infinispan.commands.write.RemoveCommand;
 import org.infinispan.commands.write.ReplaceCommand;
+import org.infinispan.commons.marshall.StreamingMarshaller;
+import org.infinispan.commons.util.CloseableIterator;
+import org.infinispan.commons.util.CloseableIteratorMapper;
+import org.infinispan.commons.util.CloseableSpliterator;
+import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.container.InternalEntryFactory;
-import org.infinispan.container.entries.InternalCacheEntry;
+import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.context.impl.TxInvocationContext;
 import org.infinispan.factories.annotations.ComponentName;
@@ -18,22 +42,11 @@ import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
 import org.infinispan.interceptors.base.CommandInterceptor;
 import org.infinispan.marshall.core.MarshalledValue;
-import org.infinispan.commons.marshall.StreamingMarshaller;
-import org.infinispan.commons.util.Immutables;
-import org.infinispan.commons.util.InfinispanCollections;
-import org.infinispan.util.CoreImmutables;
+import org.infinispan.stream.impl.interceptor.AbstractDelegatingEntryCacheSet;
+import org.infinispan.stream.impl.interceptor.AbstractDelegatingKeyCacheSet;
+import org.infinispan.stream.impl.spliterators.IteratorAsSpliterator;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
-
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-
-import static org.infinispan.factories.KnownComponentNames.CACHE_MARSHALLER;
-import static org.infinispan.marshall.core.MarshalledValue.isTypeExcluded;
 
 /**
  * Interceptor that handles the wrapping and unwrapping of cached data using {@link
@@ -49,11 +62,12 @@ import static org.infinispan.marshall.core.MarshalledValue.isTypeExcluded;
  * @see org.infinispan.marshall.core.MarshalledValue
  * @since 4.0
  */
-public class MarshalledValueInterceptor extends CommandInterceptor {
+public class MarshalledValueInterceptor<K, V> extends CommandInterceptor {
    private StreamingMarshaller marshaller;
    private boolean wrapKeys = true;
    private boolean wrapValues = true;
    private InternalEntryFactory entryFactory;
+   private Cache<K, V> cache;
 
    private static final Log log = LogFactory.getLog(MarshalledValueInterceptor.class);
    private static final boolean trace = log.isTraceEnabled();
@@ -64,9 +78,11 @@ public class MarshalledValueInterceptor extends CommandInterceptor {
    }
 
    @Inject
-   protected void injectMarshaller(@ComponentName(CACHE_MARSHALLER) StreamingMarshaller marshaller, InternalEntryFactory entryFactory) {
+   protected void inject(@ComponentName(CACHE_MARSHALLER) StreamingMarshaller marshaller,
+                         InternalEntryFactory entryFactory, Cache<K, V> cache) {
       this.marshaller = marshaller;
       this.entryFactory = entryFactory;
+      this.cache = cache;
    }
 
    @Start
@@ -153,7 +169,14 @@ public class MarshalledValueInterceptor extends CommandInterceptor {
    }
 
    @Override
-   public Object visitGetKeyValueCommand(InvocationContext ctx, GetKeyValueCommand command) throws Throwable {
+   public final Object visitGetKeyValueCommand(InvocationContext ctx, GetKeyValueCommand command) throws Throwable {
+      return visitDataReadCommand(ctx, command);
+   }
+   @Override
+   public final Object visitGetCacheEntryCommand(InvocationContext ctx, GetCacheEntryCommand command) throws Throwable {
+      return visitDataReadCommand(ctx, command);
+   }
+   private Object visitDataReadCommand(InvocationContext ctx, AbstractDataCommand command) throws Throwable {
       MarshalledValue mv;
       if (wrapKeys) {
          if (!isTypeExcluded(command.getKey().getClass())) {
@@ -166,59 +189,26 @@ public class MarshalledValueInterceptor extends CommandInterceptor {
    }
 
    @Override
-   @SuppressWarnings("unchecked")
-   public Object visitKeySetCommand(InvocationContext ctx, KeySetCommand command) throws Throwable {
-      Set<Object> keys = (Set<Object>) invokeNextInterceptor(ctx, command);
+   public Object visitGetAllCommand(InvocationContext ctx, GetAllCommand command) throws Throwable {
       if (wrapKeys) {
-         Set<Object> copy = new HashSet<Object>(keys.size());
-         for (Object key : keys) {
-            if (key instanceof MarshalledValue) {
-               key = ((MarshalledValue) key).get();
+         Set<Object> marshalledKeys = new LinkedHashSet<>();
+         for (Object key : command.getKeys()) {
+            if (!isTypeExcluded(key.getClass())) {
+               MarshalledValue mv = createMarshalledValue(key, ctx);
+               marshalledKeys.add(mv);
+            } else {
+               marshalledKeys.add(key);
             }
-            copy.add(key);
          }
-         return Immutables.immutableSetWrap(copy);
-      } else {
-         return Immutables.immutableSetWrap(keys);
+         command.setKeys(marshalledKeys);
       }
-   }
-
-   @Override
-   @SuppressWarnings("unchecked")
-   public Object visitValuesCommand(InvocationContext ctx, ValuesCommand command) throws Throwable {
-      Collection<Object> values = (Collection<Object>) invokeNextInterceptor(ctx, command);
-      if (wrapValues) {
-         Collection<Object> copy = new ArrayList<Object>();
-         for (Object value : values) {
-            if (value instanceof MarshalledValue) {
-               value = ((MarshalledValue) value).get();
-            }
-            copy.add(value);
-         }
-         return Immutables.immutableCollectionWrap(copy);
-      } else {
-         return Immutables.immutableCollectionWrap(values);
+      Map<Object, Object> map = (Map<Object, Object>) invokeNextInterceptor(ctx, command);
+      Map<Object, Object> unmarshalled = command.createMap();
+      for (Map.Entry<Object, Object> entry : map.entrySet()) {
+         // TODO: how does this apply to CacheEntries if command.isReturnEntries()?
+         unmarshalled.put(processRetVal(entry.getKey(), ctx), processRetVal(entry.getValue(), ctx));
       }
-   }
-
-   @Override
-   @SuppressWarnings("unchecked")
-   public Object visitEntrySetCommand(InvocationContext ctx, EntrySetCommand command) throws Throwable {
-      Set<InternalCacheEntry> entries = (Set<InternalCacheEntry>) invokeNextInterceptor(ctx, command);
-      Set<InternalCacheEntry> copy = new HashSet<InternalCacheEntry>(entries.size());
-      for (InternalCacheEntry entry : entries) {
-         Object key = entry.getKey();
-         Object value = entry.getValue();
-         if (key instanceof MarshalledValue) {
-            key = ((MarshalledValue) key).get();
-         }
-         if (value instanceof MarshalledValue) {
-            value = ((MarshalledValue) value).get();
-         }
-         InternalCacheEntry newEntry = CoreImmutables.immutableInternalCacheEntry(entryFactory.create(key, value, entry));
-         copy.add(newEntry);
-      }
-      return Immutables.immutableSetWrap(copy);
+      return unmarshalled;
    }
 
    @Override
@@ -240,14 +230,66 @@ public class MarshalledValueInterceptor extends CommandInterceptor {
       return processRetVal(retVal, ctx);
    }
 
-   protected Object processRetVal(Object retVal, InvocationContext ctx) {
+   protected <R> R processRetVal(R retVal, InvocationContext ctx) {
       if (retVal instanceof MarshalledValue) {
          if (ctx.isOriginLocal()) {
             if (trace) log.tracef("Return is a marshall value, so extract instance from: %s", retVal);
-            retVal = ((MarshalledValue) retVal).get();
+            retVal = (R) ((MarshalledValue) retVal).get();
          }
       }
       return retVal;
+   }
+
+   private final CacheEntry<K, V> unwrapEntry(CacheEntry<K, V> e, InvocationContext ctx) {
+      Object originalKey = e.getKey();
+      Object key = processRetVal(originalKey, ctx);
+      Object originalValue = e.getValue();
+      Object value = processRetVal(originalValue, ctx);
+      if (originalKey != key || originalValue != value) {
+         return (CacheEntry<K, V>) entryFactory.create(key, value, e.getMetadata());
+      }
+      return e;
+   }
+
+   @Override
+   public CacheSet<CacheEntry<K, V>> visitEntrySetCommand(InvocationContext ctx, EntrySetCommand command) throws Throwable {
+      CacheSet<CacheEntry<K, V>> set = (CacheSet<CacheEntry<K, V>>)super.visitEntrySetCommand(ctx, command);
+
+      return new AbstractDelegatingEntryCacheSet<K, V>(getCacheWithFlags(cache, command), set) {
+         @Override
+         public CloseableIterator<CacheEntry<K, V>> iterator() {
+            return new CloseableIteratorMapper<>(super.iterator(), e -> unwrapEntry(e, ctx));
+         }
+
+         @Override
+         public CloseableSpliterator<CacheEntry<K, V>> spliterator() {
+            return new IteratorAsSpliterator.Builder<>(iterator())
+                    .setEstimateRemaining(super.spliterator().estimateSize())
+                    .setCharacteristics(Spliterator.CONCURRENT | Spliterator.DISTINCT | Spliterator.NONNULL)
+                    .get();
+         }
+      };
+   }
+
+   @Override
+   public CacheSet<K> visitKeySetCommand(InvocationContext ctx, KeySetCommand command) throws Throwable {
+      CacheSet<K> set = (CacheSet<K>) super.visitKeySetCommand(ctx, command);
+
+      return new AbstractDelegatingKeyCacheSet<K, V>(getCacheWithFlags(cache, command), set) {
+
+         @Override
+         public CloseableIterator<K> iterator() {
+            return new CloseableIteratorMapper<>(super.iterator(), e -> processRetVal(e, ctx));
+         }
+
+         @Override
+         public CloseableSpliterator<K> spliterator() {
+            return new IteratorAsSpliterator.Builder<>(iterator())
+                    .setEstimateRemaining(super.spliterator().estimateSize())
+                    .setCharacteristics(Spliterator.CONCURRENT | Spliterator.DISTINCT | Spliterator.NONNULL)
+                    .get();
+         }
+      };
    }
 
    @SuppressWarnings("unchecked")

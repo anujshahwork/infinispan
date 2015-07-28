@@ -2,9 +2,9 @@ package org.infinispan.query.config;
 
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.hibernate.search.engine.spi.EntityIndexBinding;
-import org.hibernate.search.indexes.impl.DirectoryBasedIndexManager;
+import org.hibernate.search.indexes.spi.DirectoryBasedIndexManager;
 import org.hibernate.search.indexes.spi.IndexManager;
-import org.hibernate.search.spi.SearchFactoryIntegrator;
+import org.hibernate.search.spi.SearchIntegrator;
 import org.hibernate.search.store.impl.RAMDirectoryProvider;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.query.CacheQuery;
@@ -28,7 +28,7 @@ public class DeclarativeConfigTest extends SingleCacheManagerTest {
 
    @Override
    protected EmbeddedCacheManager createCacheManager() throws Exception {
-      String config = TestingUtil.INFINISPAN_START_TAG + "\n" +
+      String config = TestingUtil.InfinispanStartTag.LATEST + "\n" +
             "<cache-container default-cache=\"default\">" +
             "   <local-cache name=\"default\">\n" +
             "      <indexing index=\"LOCAL\">\n" +
@@ -37,7 +37,7 @@ public class DeclarativeConfigTest extends SingleCacheManagerTest {
             "   </local-cache>\n" +
             "</cache-container>" +
             TestingUtil.INFINISPAN_END_TAG;
-      System.out.println("Using test configuration:\n\n" + config + "\n");
+      log.tracef("Using test configuration:\n%s", config);
       InputStream is = new ByteArrayInputStream(config.getBytes());
       try {
          cacheManager = TestCacheManagerFactory.fromStream(is);
@@ -63,7 +63,7 @@ public class DeclarativeConfigTest extends SingleCacheManagerTest {
 
    @Test(dependsOnMethods="simpleIndexTest") //depends as otherwise the Person index is not initialized yet
    public void testPropertiesWhereRead() {
-      SearchFactoryIntegrator searchFactory = TestQueryHelperFactory.extractSearchFactory(cache);
+      SearchIntegrator searchFactory = TestQueryHelperFactory.extractSearchFactory(cache);
       EntityIndexBinding indexBindingForEntity = searchFactory.getIndexBinding(Person.class);
       IndexManager[] managers = indexBindingForEntity.getIndexManagers();
       assertEquals(1, managers.length);

@@ -37,27 +37,27 @@
           ip_ttl="${jgroups.udp.ip_ttl:2}"
           num_initial_members="3"/>
 
-   <MERGE2 max_interval="30000"
-           min_interval="10000"/>
+   <MERGE3/>
    <FD_SOCK/>
    <!--
        Note that this is an atypically short timeout and a small number of retries
        configured this way to speed up unit testing, since we know all nodes run in the same JVM
        and hence failure detections will be very quick.
           -->
-   <FD timeout="3000" max_tries="3"/>
-   <VERIFY_SUSPECT timeout="1500"/>
+   <FD_ALL interval="1000" timeout="4000" timeout_check_interval="1000"/>
+   <VERIFY_SUSPECT timeout="1000"/>
    <pbcast.NAKACK2
    					use_mcast_xmit="false"
                     xmit_interval="1000"
-                    xmit_table_num_rows="100"
-                    xmit_table_msgs_per_row="10000"
-                    xmit_table_max_compaction_time="10000"
+                    xmit_table_num_rows="50"
+                    xmit_table_msgs_per_row="1024"
+                    xmit_table_max_compaction_time="30000"
                     max_msg_batch_size="100" />   
    <UNICAST3
-              xmit_table_num_rows="20"
-              xmit_table_msgs_per_row="10000"
-              xmit_table_max_compaction_time="10000"
+              xmit_interval="500"
+              xmit_table_num_rows="50"
+              xmit_table_msgs_per_row="1024"
+              xmit_table_max_compaction_time="30000"
               max_msg_batch_size="100"
               conn_expiry_timeout="0"/>
    <RSVP />

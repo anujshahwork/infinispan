@@ -4,6 +4,8 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.LockFactory;
 import org.infinispan.lucene.readlocks.SegmentReadLocker;
 
+import java.util.concurrent.Executor;
+
 /**
  * Building context to set construction parameters of Infinispan Directory instances
  *
@@ -46,5 +48,28 @@ public interface BuildContext {
     * @return the same building context to eventually create the Directory instance
     */
    BuildContext overrideWriteLocker(LockFactory lf);
+
+   /**
+    * When set to true, the list of files of the Directory is propagated to other nodes
+    * asynchronously.
+    * This implies that a committed change to the index will not immediately be accessible
+    * by searching threads on other nodes, but the gap in time is not longer than the
+    * time of a single RPC so this gap should not be measurable unless there is some
+    * form of congestion.
+    * Currently defaults to false as it's safer.
+    *
+    * @param writeFileListAsync
+    * @return the same building context to eventually create the Directory instance
+    * @experimental
+    */
+   BuildContext writeFileListAsynchronously(boolean writeFileListAsync);
+
+   /**
+    * Provides an Executor to handle delete operations in a background thread
+    *
+    * @param executor
+    * @return
+    */
+   BuildContext deleteOperationsExecutor(Executor executor);
 
 }

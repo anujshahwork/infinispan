@@ -4,20 +4,19 @@ import org.infinispan.protostream.MessageContext;
 import org.infinispan.protostream.ProtobufParser;
 import org.infinispan.protostream.SerializationContext;
 import org.infinispan.protostream.TagHandler;
+import org.infinispan.protostream.WrappedMessage;
 import org.infinispan.protostream.descriptors.Descriptor;
 import org.infinispan.protostream.descriptors.FieldDescriptor;
 import org.infinispan.protostream.descriptors.JavaType;
 import org.infinispan.protostream.descriptors.Type;
-import org.infinispan.protostream.impl.WrappedMessageMarshaller;
 
 import java.io.IOException;
-import java.util.Iterator;
 
 /**
  * @author anistor@redhat.com
  * @since 7.0
  */
-public class ProtobufMatcherEvalContext extends MatcherEvalContext<Integer> implements TagHandler {
+public final class ProtobufMatcherEvalContext extends MatcherEvalContext<Descriptor, FieldDescriptor, Integer> implements TagHandler {
 
    private static final Object DUMMY_VALUE = new Object();
 
@@ -25,16 +24,22 @@ public class ProtobufMatcherEvalContext extends MatcherEvalContext<Integer> impl
    private int skipping = 0;
 
    private byte[] payload;
+   private String entityTypeName;
    private Descriptor payloadMessageDescriptor;
    private MessageContext messageContext;
 
    private final SerializationContext serializationContext;
    private final Descriptor wrappedMessageDescriptor;
 
-   public ProtobufMatcherEvalContext(Object instance, Descriptor wrappedMessageDescriptor, SerializationContext serializationContext) {
-      super(instance);
+   public ProtobufMatcherEvalContext(Object userContext, Object instance, Object eventType, Descriptor wrappedMessageDescriptor, SerializationContext serializationContext) {
+      super(userContext, instance, eventType);
       this.wrappedMessageDescriptor = wrappedMessageDescriptor;
       this.serializationContext = serializationContext;
+   }
+
+   @Override
+   public Descriptor getEntityType() {
+      return payloadMessageDescriptor;
    }
 
    public void unwrapPayload() {
@@ -54,7 +59,7 @@ public class ProtobufMatcherEvalContext extends MatcherEvalContext<Integer> impl
    public void onTag(int fieldNumber, String fieldName, Type type, JavaType javaType, Object tagValue) {
       if (payloadStarted) {
          if (skipping == 0) {
-            AttributeNode<Integer> attrNode = currentNode.getChild(fieldNumber);
+            AttributeNode<FieldDescriptor, Integer> attrNode = currentNode.getChild(fieldNumber);
             if (attrNode != null) { // process only 'interesting' tags
                messageContext.markField(fieldNumber);
                attrNode.processValue(tagValue, this);
@@ -62,13 +67,36 @@ public class ProtobufMatcherEvalContext extends MatcherEvalContext<Integer> impl
          }
       } else {
          switch (fieldNumber) {
-            case WrappedMessageMarshaller.WRAPPED_DESCRIPTOR_FULL_NAME:
+            case WrappedMessage.WRAPPED_DESCRIPTOR_FULL_NAME:
                entityTypeName = (String) tagValue;
                break;
 
-            case WrappedMessageMarshaller.WRAPPED_MESSAGE_BYTES:
+            case WrappedMessage.WRAPPED_DESCRIPTOR_ID:
+               entityTypeName = serializationContext.getTypeNameById((Integer) tagValue);
+               break;
+
+            case WrappedMessage.WRAPPED_MESSAGE_BYTES:
                payload = (byte[]) tagValue;
                break;
+
+            case WrappedMessage.WRAPPED_DOUBLE:
+            case WrappedMessage.WRAPPED_FLOAT:
+            case WrappedMessage.WRAPPED_INT64:
+            case WrappedMessage.WRAPPED_UINT64:
+            case WrappedMessage.WRAPPED_INT32:
+            case WrappedMessage.WRAPPED_FIXED64:
+            case WrappedMessage.WRAPPED_FIXED32:
+            case WrappedMessage.WRAPPED_BOOL:
+            case WrappedMessage.WRAPPED_STRING:
+            case WrappedMessage.WRAPPED_BYTES:
+            case WrappedMessage.WRAPPED_UINT32:
+            case WrappedMessage.WRAPPED_SFIXED32:
+            case WrappedMessage.WRAPPED_SFIXED64:
+            case WrappedMessage.WRAPPED_SINT32:
+            case WrappedMessage.WRAPPED_SINT64:
+            case WrappedMessage.WRAPPED_ENUM:
+               break;
+            // this is a primitive value, which we ignore for now due to lack of support for querying primitives
 
             default:
                throw new IllegalStateException("Unexpected field : " + fieldNumber);
@@ -80,7 +108,7 @@ public class ProtobufMatcherEvalContext extends MatcherEvalContext<Integer> impl
    public void onStartNested(int fieldNumber, String fieldName, Descriptor messageDescriptor) {
       if (payloadStarted) {
          if (skipping == 0) {
-            AttributeNode<Integer> attrNode = currentNode.getChild(fieldNumber);
+            AttributeNode<FieldDescriptor, Integer> attrNode = currentNode.getChild(fieldNumber);
             if (attrNode != null) { // ignore 'uninteresting' tags
                messageContext.markField(fieldNumber);
                pushContext(fieldName, messageDescriptor);
@@ -92,7 +120,7 @@ public class ProtobufMatcherEvalContext extends MatcherEvalContext<Integer> impl
          // found an uninteresting nesting level, start skipping from here on until this level ends
          skipping++;
       } else {
-         throw new IllegalStateException("No nested message is expected");
+         throw new IllegalStateException("No nested message is supported");
       }
    }
 
@@ -106,7 +134,7 @@ public class ProtobufMatcherEvalContext extends MatcherEvalContext<Integer> impl
             skipping--;
          }
       } else {
-         throw new IllegalStateException("No nested message is expected");
+         throw new IllegalStateException("No nested message is supported");
       }
    }
 
@@ -129,7 +157,7 @@ public class ProtobufMatcherEvalContext extends MatcherEvalContext<Integer> impl
    }
 
    @Override
-   protected void processAttributes(AttributeNode<Integer> node, Object instance) {
+   protected void processAttributes(AttributeNode<FieldDescriptor, Integer> node, Object instance) {
       try {
          ProtobufParser.INSTANCE.parse(this, payloadMessageDescriptor, payload);
       } catch (IOException e) {
@@ -148,7 +176,7 @@ public class ProtobufMatcherEvalContext extends MatcherEvalContext<Integer> impl
 
    private void processMissingFields() {
       for (FieldDescriptor fd : messageContext.getMessageDescriptor().getFields()) {
-         AttributeNode<Integer> attributeNode = currentNode.getChild(fd.getNumber());
+         AttributeNode<FieldDescriptor, Integer> attributeNode = currentNode.getChild(fd.getNumber());
          boolean fieldSeen = messageContext.isFieldMarked(fd.getNumber());
          if (attributeNode != null && (fd.isRepeated() || !fieldSeen)) {
             if (fd.isRepeated()) {
@@ -171,11 +199,9 @@ public class ProtobufMatcherEvalContext extends MatcherEvalContext<Integer> impl
       }
    }
 
-   private void processNullAttribute(AttributeNode<Integer> attributeNode) {
+   private void processNullAttribute(AttributeNode<FieldDescriptor, Integer> attributeNode) {
       attributeNode.processValue(null, this);
-      Iterator<AttributeNode<Integer>> children = attributeNode.getChildrenIterator();
-      while (children.hasNext()) {
-         AttributeNode<Integer> childAttribute = children.next();
+      for (AttributeNode<FieldDescriptor, Integer> childAttribute : attributeNode.getChildren()) {
          processNullAttribute(childAttribute);
       }
    }

@@ -1,0 +1,218 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+   <modelVersion>4.0.0</modelVersion>
+   <parent>
+      <groupId>org.infinispan</groupId>
+      <artifactId>infinispan-parent</artifactId>
+      <version>8.0.0-SNAPSHOT</version>
+      <relativePath>../parent/pom.xml</relativePath>
+   </parent>
+   <artifactId>infinispan-distribution</artifactId>
+   <name>Infinispan Distribution</name>
+   <packaging>pom</packaging>
+
+   <properties>
+      <analytics.code>
+---&gt;
+-&lt;!--
+-&lt;script type='text/javascript'&gt;
+-var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+-document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+-&lt;/script&gt;
+-&lt;script type='text/javascript'&gt;
+-try {
+-var pageTracker = _gat._getTracker("UA-8601422-4");
+-pageTracker._trackPageview();
+-} catch(err) {}&lt;/script&gt;
+            </analytics.code>
+   </properties>
+
+   <dependencies>
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-embedded</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-embedded-query</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-remote</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-cli</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-cachestore-remote</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-cachestore-rest</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-server-core</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-server-hotrod</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-server-memcached</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-server-rest</artifactId>
+         <classifier>classes</classifier>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-server-websocket</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-spring</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-spring4</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-tools</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-tree</artifactId>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-rhq-plugin</artifactId>
+         <version>${project.version}</version>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-extended-statistics</artifactId>
+         <version>${project.version}</version>
+      </dependency>
+      
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-javadoc</artifactId>
+         <version>${project.version}</version>
+         <classifier>javadoc</classifier>
+      </dependency>
+      
+      <dependency>
+         <groupId>javax.cache</groupId>
+         <artifactId>cache-api</artifactId>
+      </dependency>
+   </dependencies>
+
+   <build>
+      <plugins>
+         <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <executions>
+               <execution>
+                  
+                  <id>xsdocgen</id>
+                  <phase>package</phase>
+                  <goals>
+                     <goal>run</goal>
+                  </goals>
+                  <configuration>
+                     <target>
+                        <property name="plugin_classpath" refid="maven.plugin.classpath" />
+                        <echo message="Base dir: ${basedir}" />
+                        <path id="xsd.fileset.path">
+                           <fileset casesensitive="yes" dir="${basedir}/..">
+                              <include name="core/src/main/resources/schema/*-${infinispan.core.schema.version}.xsd" />
+                              <include name="persistence/*/src/main/resources/schema/*-${infinispan.core.schema.version}.xsd" />
+                              <include name="spring/spring/src/main/resources/org/infinispan/spring/config/*-${infinispan.core.schema.version}.xsd" />
+                           </fileset>
+                        </path>
+                        <pathconvert pathsep=" " property="xsd.fileset" refid="xsd.fileset.path" />
+                        <echo message="XSDs: ${xsd.fileset}" />
+                        <java classname="org.infinispan.tools.xsd.XSDoc">
+                           <arg value="-o" />
+                           <arg value="${project.build.directory}/site/configdocs" />
+                           <arg line="${xsd.fileset}" />
+                           <classpath>
+                              <pathelement path="${plugin_classpath}" />
+                           </classpath>
+                        </java>
+                     </target>
+                  </configuration>
+               </execution>
+               <execution>
+                  <id>distribution</id>
+                  <phase>package</phase>
+                  <goals>
+                     <goal>run</goal>
+                  </goals>
+                  <configuration>
+                     <target>
+                        <ant antfile="package.xml" inheritRefs="true" />
+                     </target>
+                  </configuration>
+               </execution>
+            </executions>
+            <dependencies>
+               <dependency>
+                  <groupId>org.infinispan</groupId>
+                  <artifactId>infinispan-tools</artifactId>
+                  <version>${project.version}</version>
+               </dependency>
+            </dependencies>
+         </plugin>
+         <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-assembly-plugin</artifactId>
+            <executions>
+               <execution>
+                  <id>assemble</id>
+                  <phase>package</phase>
+                  <goals>
+                     <goal>single</goal>
+                  </goals>
+               </execution>
+            </executions>
+            <configuration>
+               <descriptors>
+                  <descriptor>src/main/assemblies/minimal.xml</descriptor>
+                  <descriptor>src/main/assemblies/all.xml</descriptor>
+                  <descriptor>src/main/assemblies/src.xml</descriptor>
+               </descriptors>
+               <finalName>infinispan-${project.version}</finalName>
+               <outputDirectory>${buildDirectory}/distribution</outputDirectory>
+               <workDirectory>${buildDirectory}/assembly/work</workDirectory>
+
+               
+               <attach>false</attach>
+            </configuration>
+         </plugin>
+      </plugins>
+   </build>
+</project>

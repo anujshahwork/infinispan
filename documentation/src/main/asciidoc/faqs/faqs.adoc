@@ -90,7 +90,7 @@ Infinispan is a complete, separate and standalone project.
 Some may consider this a fork, but the people behind Infinispan and JBoss Cache see it as an evolution, since all future effort will be on Infinispan and not JBoss Cache. 
 
 === What version of Java does Infinispan need to run? Does Infinispan need an application server to run?
-All that is needed is a Java 6.0 compatible JVM.
+All that is needed is a Java 7.0 compatible JVM.
 An application server is _not_ a requirement. 
 
 === Will there be a POJO Cache replacement in Infinispan?
@@ -102,10 +102,9 @@ A lot of the code, designs and ideas in Infinispan are from JBoss Cache, and has
 Infinispan should thus be viewed as a mature and stable platform and not a new, experimental one.
 
 === How is this related to JSR 107, the JCACHE specification?
-link:$$http://jcp.org/en/jsr/detail?id=107$$[JSR 107] is not complete, but Infinispan's primary API is as close as possible to JSR 107's `javax.cache.Cache` interface.
-The goal is once JSR 107 is complete, `org.infinispan.Cache` would extend `javax.cache.Cache`.
+Infinispan core engineers are on the link:$$http://jcp.org/en/jsr/detail?id=107$$[JSR 107] expert group and starting with version 7.0.0, Infinispan provides a certified compatible implementation of version 1.0.0 of the specification.
 
-Infinispan core engineers are on the JSR 107 expert group, and have produced link:$$../user_guide/user_guide.html#_using_infinispan_as_a_jsr107_jcache_provider$$[a prototype of Infinispan implementing JSR 107].
+Have a look at link:$$../user_guide/user_guide.html#_using_infinispan_as_a_jsr107_jcache_provider$$[Using Infinispan as a JSR107 (JCache) provider] for details.
 
 === Can I use Infinispan with Hibernate?
 Yes, you can combine one or more of these integrations in the same application:
@@ -131,9 +130,9 @@ link:$$http://docs.jboss.org/infinispan/6.0/apidocs/org/infinispan/tree/TreeCach
 link:$$http://docs.jboss.org/infinispan/6.0/apidocs/org/infinispan/tree/TreeCache.html$$[TreeCache] should be considered as a compatibility API, if you are migrating from JBoss Cache and cannot invest the time in rewriting your application, or your application specifically relies on a tree structure.
 
 ==== Which JVMs (JDKs) does Infinispan work with?
-Infinispan is developed and primarily tested against Sun's Java SE 6.
-It should work with most Java SE 6 implementations, including those from IBM, HP, Apple, Oracle, and OpenJDK.
-We also build/test against JDK 7.
+Infinispan is developed and primarily tested against Oracle's Java SE 7.
+It should work with most Java SE 7 implementations, including those from IBM, HP, Apple, Oracle, and OpenJDK.
+We also build/test against JDK 8.
 
 ==== Does Infinispan store data by value or by reference?
 
@@ -253,11 +252,6 @@ There're two ways to get around this issue, either:
 
 
 === Eviction and Expiration questions
-==== Cache's number of entries never reaches configured maxEntries, why is that?
-In the current eviction design, eviction happens per map segment, so when the segment gets filled up, eviction runs in that segment.
-This means that the theoretical maxEntries might never be achieved, but it'll be close enough.
-For more information, see the link:$$../user_guide/user_guide.html$$[User Guide] chapter on Eviction.
-
 ==== Expiration does not work, what is the problem?
 Multiple cache operations such as link:$$http://docs.jboss.org/infinispan/6.0/apidocs/org/infinispan/Cache.html#put(K, V, long, java.util.concurrent.TimeUnit)$$[`put()`] can take a lifespan as parameter which defines the time when the entry should be expired.
 If you have no eviction configured and and you let this time expire, it can look as Infinispan has not removed the entry.
@@ -270,10 +264,6 @@ Removal of _expired_ entries happens in one of 2 ways:
 
 If you have not enabled (2), or your eviction thread wakeup interval is large and you probe jconsole before the eviction thread kicks in, you will still see the expired entry.
 You can be assured that if you tried to _retrieve_ the entry via a get() or containsKey() though, you won't see the entry (and the entry will be removed). 
-
-==== Why is cache size sometimes even higher than specified maxEntries of the eviction configuration element?
-Although one can specify maxEntries to be a value that is not a power of two, the underlying algorithm will size it to the value V closest to power of two that is larger than maxEntries specified.
-Eviction algorithms guarantee that the size of cache container will never be greater than V.
 
 ==== Why isn't there a notification for the expiration of a cache entry?
 Infinispan does not guarantee that an eviction will occur immediately on timeout, but instead uses a number of mechanisms to perform eviction:
@@ -361,10 +351,21 @@ The key affinity (for keys generated with the link:$$../user_guide/user_guide.ht
 === Listener questions
 
 ==== In a cache entry modified listener, can the modified value be retrieved via Cache.get() when isPre=false?
-No, it cannot. Use CacheEntryModifiedEvent.getValue() to retrieve the value of the entry that was modified. 
+No, it cannot. Use `CacheEntryModifiedEvent.getValue()` to retrieve the value of the entry that was modified.
 
 ==== When annotating a method with CacheEntryCreated, how do I retrieve the value of the cache entry added?
-Cache listeners can be defined to listen for cache entry created events by annotation methods with link:$$http://docs.jboss.org/infinispan/6.0/apidocs/org/infinispan/notifications/cachelistener/annotation/CacheEntryCreated.html$$[@CacheEntryCreated] and having link:$$http://docs.jboss.org/infinispan/6.0/apidocs/org/infinispan/notifications/cachelistener/event/CacheEntryCreatedEvent.html$$[CacheEntryCreatedEvent] as method parameter. link:$$http://docs.jboss.org/infinispan/6.0/apidocs/org/infinispan/notifications/cachelistener/event/CacheEntryCreatedEvent.html$$[CacheEntryCreatedEvent] does not provide a method to retrieve the value that was created in the cache though. To retrieve this value, a method annotated with link:$$http://docs.jboss.org/infinispan/6.0/apidocs/org/infinispan/notifications/cachelistener/annotation/CacheEntryModified.html$$[@CacheEntryModified] needs to be added because every time a cache entry is created, cache entry modified event is also fired.
+Use `CacheEntryCreatedEvent.getValue()` to retrieve the value of the entry.
+
+==== What is the difference between classes in `org.infinispan.notifications.cachelistener.filter` vs `org.infinispan.filter`?
+Inside these packages you'll find classes that facilitate filtering and data conversion.
+The difference is that classes in `org.infinispan.filter` are used for filtering
+and conversion in multiple areas, such as cache loaders, entry iterators,...etc,
+whereas classes in `org.infinispan.notifications.cachelistener.filter` are purely
+used for listener event filtering, and provide more information than similarly
+named classes in `org.infinispan.filter`. More specifically, remote listener
+event filtering and conversion require `CacheEventFilter` and `CacheEventConverter`
+instances located in `org.infinispan.notifications.cachelistener.filter` package
+to be used.
 
 === IaaS/Cloud Infrastructure questions
 ==== How do you make Infinispan send replication traffic over a specific network when you don't know the IP address?

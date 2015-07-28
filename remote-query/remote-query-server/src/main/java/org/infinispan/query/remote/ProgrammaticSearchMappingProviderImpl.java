@@ -8,12 +8,14 @@ import org.infinispan.Cache;
 import org.infinispan.query.remote.indexing.ProtobufValueWrapper;
 import org.infinispan.query.remote.indexing.ProtobufValueWrapperFieldBridge;
 import org.infinispan.query.spi.ProgrammaticSearchMappingProvider;
+import org.kohsuke.MetaInfServices;
 
 /**
  * @author anistor@redhat.com
  * @since 6.0
  */
-public class ProgrammaticSearchMappingProviderImpl implements ProgrammaticSearchMappingProvider {
+@MetaInfServices
+public final class ProgrammaticSearchMappingProviderImpl implements ProgrammaticSearchMappingProvider {
 
    @Override
    public void defineMappings(Cache cache, SearchMapping searchMapping) {
@@ -21,7 +23,7 @@ public class ProgrammaticSearchMappingProviderImpl implements ProgrammaticSearch
             .indexed()
             .classBridgeInstance(new ProtobufValueWrapperFieldBridge(cache))
             .norms(Norms.NO)
-            .analyze(Analyze.YES)
-            .store(Store.YES);
+            .analyze(Analyze.NO)
+            .store(Store.NO);
    }
 }

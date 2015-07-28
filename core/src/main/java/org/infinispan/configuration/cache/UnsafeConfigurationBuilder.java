@@ -1,6 +1,12 @@
 package org.infinispan.configuration.cache;
 
+import static org.infinispan.configuration.cache.UnsafeConfiguration.UNRELIABLE_RETURN_VALUES;
+
+import java.util.Map;
+
 import org.infinispan.commons.configuration.Builder;
+import org.infinispan.commons.configuration.attributes.AttributeSet;
+import org.infinispan.configuration.global.GlobalConfiguration;
 
 /**
  * Controls certain tuning parameters that may break some of Infinispan's public API contracts in exchange for better
@@ -11,10 +17,12 @@ import org.infinispan.commons.configuration.Builder;
  */
 public class UnsafeConfigurationBuilder extends AbstractConfigurationChildBuilder implements Builder<UnsafeConfiguration> {
 
-   private boolean unreliableReturnValues = false;
+   private final AttributeSet attributes;
+
 
    protected UnsafeConfigurationBuilder(ConfigurationBuilder builder) {
       super(builder);
+      attributes = UnsafeConfiguration.attributeDefinitionSet();
    }
 
    /**
@@ -28,7 +36,7 @@ public class UnsafeConfigurationBuilder extends AbstractConfigurationChildBuilde
     * @param allowUnreliableReturnValues if true, return values for the methods described above should not be relied on.
     */
    public UnsafeConfigurationBuilder unreliableReturnValues(boolean allowUnreliableReturnValues) {
-      this.unreliableReturnValues = allowUnreliableReturnValues;
+      attributes.attribute(UNRELIABLE_RETURN_VALUES).set(allowUnreliableReturnValues);
       return this;
    }
 
@@ -38,22 +46,22 @@ public class UnsafeConfigurationBuilder extends AbstractConfigurationChildBuilde
    }
 
    @Override
+   public void validate(GlobalConfiguration globalConfig) {
+   }
+
+   @Override
    public UnsafeConfiguration create() {
-      return new UnsafeConfiguration(unreliableReturnValues);
+      return new UnsafeConfiguration(attributes.protect());
    }
 
    @Override
    public UnsafeConfigurationBuilder read(UnsafeConfiguration template) {
-      this.unreliableReturnValues = template.unreliableReturnValues();
-
+      this.attributes.read(template.attributes());
       return this;
    }
 
    @Override
    public String toString() {
-      return "UnsafeConfigurationBuilder{" +
-            "unreliableReturnValues=" + unreliableReturnValues +
-            '}';
+      return this.getClass().getSimpleName() + attributes;
    }
-
 }

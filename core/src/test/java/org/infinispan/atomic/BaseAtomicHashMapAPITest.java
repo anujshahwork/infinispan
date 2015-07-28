@@ -3,6 +3,7 @@ package org.infinispan.atomic;
 import org.infinispan.Cache;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.context.Flag;
 import org.infinispan.distribution.MagicKey;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.test.TestingUtil;
@@ -10,19 +11,23 @@ import org.infinispan.transaction.LockingMode;
 import org.infinispan.transaction.TransactionMode;
 import org.infinispan.transaction.lookup.DummyTransactionManagerLookup;
 import org.infinispan.util.concurrent.IsolationLevel;
+import org.infinispan.util.concurrent.TimeoutException;
+import org.junit.Assert;
 import org.testng.annotations.Test;
 
 import javax.transaction.Transaction;
 import javax.transaction.TransactionManager;
+
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.TimeUnit;
 
 import static org.testng.AssertJUnit.*;
 
@@ -40,6 +45,7 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
    @Override
    protected void createCacheManagers() throws Throwable {
       ConfigurationBuilder configurationBuilder = getDefaultClusteredCacheConfig(CacheMode.REPL_SYNC, true);
+      configurationBuilder.clustering().hash().numSegments(60);
       configurationBuilder.transaction()
             .transactionMode(TransactionMode.TRANSACTIONAL).transactionManagerLookup(new DummyTransactionManagerLookup())
             .lockingMode(LockingMode.PESSIMISTIC)
@@ -50,6 +56,8 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
    public void testMultipleTx() throws Exception {
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
 
       final TransactionManager tm1 = tm(cache1);
 
@@ -149,27 +157,21 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
 
       tm(0, "atomic").begin();
       assertMap(expectedMap, map);
-      final AtomicBoolean allOk = new AtomicBoolean(false);
       map.put("the-2", "a minor");
 
-      fork(new Runnable() {
+      Future<Void> f = fork(TestingUtil.withTxCallable(tm(0, "atomic"), new Callable<Void>() {
          @Override
-         public void run() {
-            try {
-               tm(0, "atomic").begin();
-               Map<String, String> map = createAtomicMap(cache1, "testConcurrentReadsOnExistingMap", true);
-               assertMap(expectedMap, map);
-               assertNotContainsKey(map, "the-2");
-               tm(0, "atomic").commit();
-               allOk.set(true);
-            } catch (Exception e) {
-               log.error("Unexpected error performing transaction", e);
-            }
+         public Void call() {
+            Map<String, String> map = createAtomicMap(cache1, "testConcurrentReadsOnExistingMap", true);
+            assertMap(expectedMap, map);
+            assertNotContainsKey(map, "the-2");
+            return null;
          }
-      }, true);
+      }));
+
+      f.get(10, TimeUnit.SECONDS);
 
       tm(0, "atomic").commit();
-      assertTrue(allOk.get());
    }
 
    public void testConcurrentWritesOnExistingMap() throws Exception {
@@ -181,29 +183,34 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
 
       tm(0, "atomic").begin();
       assertMap(expectedMap, map);
-      final AtomicBoolean allOk = new AtomicBoolean(false);
       map.put("the-2", "a minor");
 
-      fork(new Runnable() {
+      Future<Void> f = fork(TestingUtil.withTxCallable(tm(0, "atomic"), new Callable<Void>() {
          @Override
-         public void run() {
-            try {
-               tm(0, "atomic").begin();
-               Map<String, String> map = createAtomicMap(cache1, "testConcurrentReadsOnExistingMap", true);
-               assertMap(expectedMap, map);
-               assertNotContainsKey(map, "the-2");
-               map.put("the-2", "a minor-different"); // We're in pessimistic locking, so this put is going to block
-               tm(0, "atomic").commit();
-            } catch (org.infinispan.util.concurrent.TimeoutException e) {
-               allOk.set(true);
-            } catch (Exception e) {
-               log.error("Unexpected error performing transaction", e);
-            }
+         public Void call() {
+            Map<String, String> map = createAtomicMap(cache1, "testConcurrentReadsOnExistingMap", true);
+            assertMap(expectedMap, map);
+            assertNotContainsKey(map, "the-2");
+            map.put("the-2", "a minor-different"); // We're in pessimistic locking, so this put is going to block
+            return null;
          }
-      }, true);
+      }));
+
+      try {
+         f.get(10, TimeUnit.SECONDS);
+         fail("We should have received a wrapped TimeoutException");
+      } catch (ExecutionException e) {
+         Throwable t = e;
+         do {
+            // We should have gotten a timeout exception since lock was held in other transaction
+            if (t instanceof TimeoutException) {
+               break;
+            }
+         } while ((t = t.getCause()) != null);
+         assertNotNull("We should have found a TimeoutException!", t);
+      }
 
       tm(0, "atomic").commit();
-      assertTrue(allOk.get());
    }
 
    public void testConcurrentWritesAndIteration() throws Exception {
@@ -211,47 +218,44 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
       assertSize(cache1, 0);
       final Map<String, String> map = createAtomicMap(cache1, "testConcurrentWritesAndIteration", true);
       assertSize(map, 0);
-      final AtomicBoolean allOk = new AtomicBoolean(true);
-      final CountDownLatch latch = new CountDownLatch(1);
-      Thread t1 = fork(new Runnable() {
+      Callable<Void> c1 = new Callable() {
          @Override
-         public void run() {
-            try {
-               Map<String, String> map = createAtomicMap(cache1, "testConcurrentWritesAndIteration", true);
-               latch.await();
-               for (int i = 0; i < 500; i++) {
-                  map.put("key-" + i, "value-" + i);
-               }
-            } catch (Exception e) {
-               log.error("Unexpected error performing transaction", e);
-            }
-         }
-      }, false);
-
-      Thread t2 = fork(new Runnable() {
-         @Override
-         public void run() {
+         public Void call() throws Exception {
             Map<String, String> map = createAtomicMap(cache1, "testConcurrentWritesAndIteration", true);
-            try {
-               latch.await();
-               for (int i = 0; i < 500; i++) {
-                  map.keySet();
-               }
-            } catch (Exception e) {
-               allOk.set(false);
-               log.error("Unexpected error performing transaction", e);
+            for (int i = 0; i < 250; i++) {
+               map.put("key-" + i, "value-" + i);
             }
+            return null;
          }
-      }, false);
-      latch.countDown();
-      t1.join();
-      t2.join();
-      assertTrue("Iteration raised an exception.", allOk.get());
+      };
+
+      Callable<Void> c2 = new Callable() {
+         @Override
+         public Void call() throws Exception {
+            Map<String, String> map = createAtomicMap(cache1, "testConcurrentWritesAndIteration", true);
+            for (int i = 0; i < 250; i++) {
+               map.keySet();
+            }
+            return null;
+         }
+      };
+      CompletionService<Void> cs = runConcurrentlyWithCompletionService(c1, c2);
+
+      for (int i = 0; i < 2; i++) {
+         Future<Void> future = cs.poll(1, TimeUnit.MINUTES);
+         // No timeout since it is guaranteed to be done
+         if (future == null) {
+            fail("Execution of forked tasks didn't complete within 1 minute");
+         }
+         future.get();
+      }
    }
 
    public void testRollback() throws Exception {
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
       final Map<String, String> map1 = createAtomicMap(cache1, "testRollback", true);
 
       tm(0, "atomic").begin();
@@ -266,6 +270,8 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
    public void testRollbackAndThenCommit() throws Exception {
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
       final Map<String, String> map1 = createAtomicMap(cache1, "testRollbackAndThenCommit", true);
 
       tm(0, "atomic").begin();
@@ -292,6 +298,9 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
 
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
+
       tm(0, "atomic").begin();
       Map<String, String> map1 = createAtomicMap(cache1, "testCreateMapInTx", true);
       map1.put("k1", "v1");
@@ -309,6 +318,9 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
 
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
+
       final Map<String, String> map = createAtomicMap(cache1, "testNoTx", true);
       map.put("existing", "existing");
       map.put("blah", "blah");
@@ -321,6 +333,9 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
    public void testReadUncommittedValues() throws Exception {
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
+
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
 
       Map<String, String> map = createAtomicMap(cache1, "testReadUncommittedValues");
 
@@ -388,6 +403,9 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
 
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
+
       final Map<String, String> map = createAtomicMap(cache1, "testCommitReadUncommittedValues");
       tm(cache1).begin();
       map.put("existing", "existing");
@@ -417,6 +435,9 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
 
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
+
       final TransactionManager tm1 = tm(cache1);
       final TransactionManager tm2 = tm(cache2);
 
@@ -432,35 +453,21 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
       assertMap(expectedMap, map1);
       assertMap(expectedMap, map2);
 
-      Future<Void> t1 = fork(new Callable<Void>() {
+      Future<Void> t1 = fork(TestingUtil.withTxCallable(tm1, new Callable<Void>() {
          @Override
          public Void call() throws Exception {
-            try {
-               tm1.begin();
-               map1.put("k1", "tx1Value");
-               tm1.commit();
-            } catch (Exception e) {
-               log.error(e);
-               throw e;
-            }
+            map1.put("k1", "tx1Value");
             return null;
          }
-      });
+      }));
 
-      Future<Void> t2 = fork(new Callable<Void>() {
+      Future<Void> t2 = fork(TestingUtil.withTxCallable(tm2, new Callable<Void>() {
          @Override
          public Void call() throws Exception {
-            try {
-               tm2.begin();
-               map2.put("k2", "tx2Value");
-               tm2.commit();
-            } catch (Exception e) {
-               log.error(e);
-               throw e;
-            }
+            map2.put("k2", "tx2Value");
             return null;
          }
-      });
+      }));
 
       t2.get();
       t1.get();
@@ -473,6 +480,9 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
    public void testReplicationPutCommit() throws Exception {
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
+
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
 
       final Map<String, String> map = createAtomicMap(cache1, "testReplicationPutCommit");
       Map<Object, Object> expectedMap = createMap("existing", "existing", "blah", "blah");
@@ -501,6 +511,9 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
    public void testReplicationRemoveCommit() throws Exception {
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
+
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
 
       final Map<String, String> map = createAtomicMap(cache1, "testReplicationRemoveCommit");
 
@@ -531,6 +544,9 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
 
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
+
       final Map<String, String> map = createAtomicMap(cache1, "map");
       final Map<String, String> map2 = createAtomicMap(cache2, "map", false);
       Map<Object, Object> expectedMap = createMap("existing", "existing", "blah", "blah");
@@ -554,8 +570,52 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
       assertMap(expectedMap, map2);
    }
 
+   public void testInsertDeleteInsertCycle() throws Exception {
+      final Cache<MagicKey, Object> cache2 = cache(1, "atomic");
+      testInsertDeleteCycle(new MagicKey(cache2));
+   }
+   
+   public void testInsertDeleteInsertCyclePrimaryOwner() throws Exception {
+      final Cache<MagicKey, Object> cache1 = cache(0, "atomic");
+      testInsertDeleteCycle(new MagicKey(cache1));
+   }
+
+   private void testInsertDeleteCycle(MagicKey key) throws Exception {
+      final Cache<MagicKey, Object> cache1 = cache(0, "atomic");
+      final Cache<MagicKey, Object> cache2 = cache(1, "atomic");
+
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
+
+      {
+         TestingUtil.getTransactionManager(cache1).begin();
+         Map<String, Object> am = createAtomicMap(cache1, key);
+         am.put("k1", "v1");
+         TestingUtil.getTransactionManager(cache1).commit();
+      }
+      {
+         TestingUtil.getTransactionManager(cache1).begin();
+         Map<String, Object> am = createAtomicMap(cache1, key);
+         am.put("k3", "v3");
+         removeAtomicMap(cache1, key); //!
+         am = createAtomicMap(cache1, key);
+         am.put("k2", "v2");
+         TestingUtil.getTransactionManager(cache1).commit();
+      }
+      final boolean fails;
+      {
+         TestingUtil.getTransactionManager(cache1).begin();
+         Map<String, Object> am = createAtomicMap(cache1, key);
+         //'k1' should no longer exist as we had killed the whole am instance in previous transaction
+         fails = am.containsKey("k1");
+         TestingUtil.getTransactionManager(cache1).commit();
+      }
+      Assert.assertFalse(fails);
+   }
+
    public void testDuplicateValue() {
       final Cache<String, Object> cache = cache(0, "atomic");
+      assertSize(cache, 0);
       final Map<String, String> map = createAtomicMap(cache, "duplicateValues", true);
 
       map.put("k1", "value");
@@ -570,6 +630,9 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
    public void testReadEntriesCommittedInConcurrentTx() throws Exception {
       final Cache<String, Object> cache1 = cache(0, "atomic");
       final Cache<String, Object> cache2 = cache(1, "atomic");
+
+      assertSize(cache1, 0);
+      assertSize(cache2, 0);
 
       if (cache1.getCacheConfiguration().locking().isolationLevel() != IsolationLevel.REPEATABLE_READ ||
             cache2.getCacheConfiguration().locking().isolationLevel() != IsolationLevel.REPEATABLE_READ) {
@@ -622,7 +685,12 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
    }
 
    private void assertSize(Map<?, ?> map, int expectedSize) {
-      final int size = map.size();
+      final int size;
+      if (map instanceof Cache) {
+         size = ((Cache)map).getAdvancedCache().withFlags(Flag.CACHE_MODE_LOCAL).size();
+      } else {
+         size = map.size();
+      }
       assertEquals("Wrong size in map '" + map + "'.", expectedSize, size);
       if (size == 0) {
          assertEmpty(map);
@@ -717,4 +785,9 @@ public abstract class BaseAtomicHashMapAPITest extends MultipleCacheManagersTest
    protected final <CK, K, V> Map<K, V> createAtomicMap(Cache<CK, Object> cache, CK key) {
       return createAtomicMap(cache, key, true);
    }
+
+   protected <CK> void removeAtomicMap(Cache<CK, Object> cache, CK key) {
+      AtomicMapLookup.removeAtomicMap(cache, key);
+   }
+
 }

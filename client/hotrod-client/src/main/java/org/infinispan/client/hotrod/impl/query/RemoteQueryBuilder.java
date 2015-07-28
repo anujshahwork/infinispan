@@ -18,8 +18,8 @@ public final class RemoteQueryBuilder extends BaseQueryBuilder<Query> {
    private final RemoteCacheImpl cache;
    private final SerializationContext serializationContext;
 
-   public RemoteQueryBuilder(RemoteCacheImpl cache, SerializationContext serializationContext, String rootType) {
-      super(rootType);
+   public RemoteQueryBuilder(RemoteQueryFactory queryFactory, RemoteCacheImpl cache, SerializationContext serializationContext, String rootType) {
+      super(queryFactory, rootType);
       this.cache = cache;
       this.serializationContext = serializationContext;
    }
@@ -27,7 +27,16 @@ public final class RemoteQueryBuilder extends BaseQueryBuilder<Query> {
    @Override
    public Query build() {
       String jpqlString = accept(new RemoteJPAQueryGenerator(serializationContext));
-      log.tracef("JPQL string : %s", jpqlString);
-      return new RemoteQuery(cache, serializationContext, jpqlString, startOffset, maxResults);
+      if (log.isTraceEnabled()) {
+         log.tracef("JPQL string : %s", jpqlString);
+      }
+      String[] _projection = null;
+      if (projection != null) {
+         _projection = new String[projection.length];
+         for (int i = 0; i < projection.length; i++) {
+            _projection[i] = projection[i].toString();
+         }
+      }
+      return new RemoteQuery(queryFactory, cache, serializationContext, jpqlString, _projection, startOffset, maxResults);
    }
 }

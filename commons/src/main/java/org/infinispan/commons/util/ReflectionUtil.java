@@ -167,8 +167,9 @@ public class ReflectionUtil {
          method.setAccessible(true);
          return method.invoke(instance, parameters);
       } catch (InvocationTargetException e) {
+         Throwable cause = e.getCause() != null ? e.getCause() : e;
          throw new CacheException("Unable to invoke method " + method + " on object of type " + (instance == null ? "null" : instance.getClass().getSimpleName()) +
-                                        (parameters != null ? " with parameters " + Arrays.asList(parameters) : ""), e.getCause());
+                                        (parameters != null ? " with parameters " + Arrays.asList(parameters) : ""), cause);
       } catch (Exception e) {
          throw new CacheException("Unable to invoke method " + method + " on object of type " + (instance == null ? "null" : instance.getClass().getSimpleName()) +
                (parameters != null ? " with parameters " + Arrays.asList(parameters) : ""), e);
@@ -351,6 +352,17 @@ public class ReflectionUtil {
          return clazz.cast(obj);
 
       throw log.unableToUnwrap(obj, clazz);
+   }
+
+   public static <T> T unwrapAny(Class<T> clazz, Object... objs) {
+      if (clazz != null) {
+         for (Object o : objs) {
+            if (clazz.isAssignableFrom(o.getClass()))
+               return clazz.cast(o);
+         }
+      }
+
+      throw log.unableToUnwrapAny(Arrays.toString(objs), clazz);
    }
 
 }

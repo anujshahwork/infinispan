@@ -1,7 +1,6 @@
 package org.infinispan.commands.read;
 
 import org.infinispan.commands.Visitor;
-import org.infinispan.container.InternalEntryFactory;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
@@ -20,20 +19,17 @@ import static org.infinispan.commons.util.Util.toStr;
  * @author Manik Surtani (<a href="mailto:manik@jboss.org">manik@jboss.org</a>)
  * @since 4.0
  */
-public class GetKeyValueCommand extends AbstractDataCommand {
+public class GetKeyValueCommand extends AbstractDataCommand implements RemoteFetchingCommand {
+
    public static final byte COMMAND_ID = 4;
    private static final Log log = LogFactory.getLog(GetKeyValueCommand.class);
    private static final boolean trace = log.isTraceEnabled();
-   private InternalCacheEntry remotelyFetchedValue;
-   // TODO: These two instance variables specific to getCacheEntry, optimise
-   private boolean returnEntry;
-   private InternalEntryFactory entryFactory;
 
-   public GetKeyValueCommand(Object key, Set<Flag> flags, boolean returnEntry, InternalEntryFactory entryFactory) {
+   private InternalCacheEntry remotelyFetchedValue;
+
+   public GetKeyValueCommand(Object key, Set<Flag> flags) {
       this.key = key;
       this.flags = flags;
-      this.returnEntry = returnEntry;
-      this.entryFactory = entryFactory;
    }
 
    public GetKeyValueCommand() {
@@ -60,22 +56,7 @@ public class GetKeyValueCommand extends AbstractDataCommand {
          return null;
       }
 
-      // Get cache entry instead of value
-      if (returnEntry) {
-         CacheEntry copy = entryFactory.copy(entry);
-         if (trace) {
-            log.tracef("Found entry %s", entry);
-            log.tracef("Returning copied entry %s", copy);
-         }
-
-         return copy;
-      }
-
-      final Object value = entry.getValue();
-      if (trace) {
-         log.tracef("Found value %s", toStr(value));
-      }
-      return value;
+      return entry.getValue();
    }
 
    @Override
@@ -89,12 +70,11 @@ public class GetKeyValueCommand extends AbstractDataCommand {
       if (commandId != COMMAND_ID) throw new IllegalStateException("Invalid method id");
       key = parameters[0];
       flags = (Set<Flag>) parameters[1];
-      returnEntry = (Boolean) parameters[2];
    }
 
    @Override
    public Object[] getParameters() {
-      return new Object[]{key, Flag.copyWithoutRemotableFlags(flags), returnEntry};
+      return new Object[]{key, Flag.copyWithoutRemotableFlags(flags)};
    }
 
    /**
@@ -113,16 +93,11 @@ public class GetKeyValueCommand extends AbstractDataCommand {
       return remotelyFetchedValue;
    }
 
-   public boolean isReturnEntry() {
-      return returnEntry;
-   }
-
    public String toString() {
       return new StringBuilder()
             .append("GetKeyValueCommand {key=")
             .append(toStr(key))
             .append(", flags=").append(flags)
-            .append(", returnEntry=").append(returnEntry)
             .append("}")
             .toString();
    }

@@ -4,7 +4,7 @@
    <parent>
       <groupId>org.infinispan</groupId>
       <artifactId>infinispan-parent</artifactId>
-      <version>7.0.0-SNAPSHOT</version>
+      <version>8.0.0-SNAPSHOT</version>
       <relativePath>../../parent/pom.xml</relativePath>
    </parent>
 
@@ -30,12 +30,6 @@
       </dependency>
 
       <dependency>
-         <groupId>org.apache.avro</groupId>
-         <artifactId>avro</artifactId>
-         <scope>provided</scope>
-      </dependency>
-
-      <dependency>
          <groupId>${project.groupId}</groupId>
          <artifactId>infinispan-core</artifactId>
          <type>test-jar</type>
@@ -44,7 +38,28 @@
 
       <dependency>
          <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-query</artifactId>
+         <version>${project.version}</version>
+         <type>test-jar</type>
+         <scope>test</scope>
+      </dependency>
+
+      <dependency>
+         <groupId>${project.groupId}</groupId>
          <artifactId>infinispan-remote-query-server</artifactId>
+         <scope>test</scope>
+      </dependency>
+      
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-scripting</artifactId>
+         <scope>test</scope>
+      </dependency>
+      
+      <dependency>
+         <groupId>${project.groupId}</groupId>
+         <artifactId>infinispan-scripting</artifactId>
+         <type>test-jar</type>
          <scope>test</scope>
       </dependency>
 
@@ -88,10 +103,10 @@
 
       <dependency>
          <groupId>org.infinispan.protostream</groupId>
-         <artifactId>sample-domain-implementation</artifactId>
+         <artifactId>sample-domain-definition</artifactId>
          <scope>test</scope>
       </dependency>
-      
+
       <dependency>
          <groupId>org.jboss.sasl</groupId>
          <artifactId>jboss-sasl</artifactId>
@@ -119,7 +134,6 @@
                      ${project.groupId}.client.hotrod.*;version=${project.version};-split-package:=error
                   </Export-Package>
                   <Import-Package>
-                     org.apache.avro.*;resolution:=optional,
                      *
                   </Import-Package>
                </instructions>

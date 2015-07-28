@@ -1,18 +1,11 @@
 package org.infinispan.statetransfer;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-
 import org.infinispan.Cache;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.partitionhandling.AvailabilityMode;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.test.TestingUtil;
@@ -26,6 +19,15 @@ import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.testng.annotations.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anySet;
@@ -37,7 +39,8 @@ import static org.mockito.Mockito.spy;
 @CleanupAfterMethod
 public class ClusterTopologyManagerTest extends MultipleCacheManagersTest {
 
-   public static final String CACHE_NAME = "cache";
+   public static final String CACHE_NAME = "testCache";
+   private static final String OTHER_CACHE_NAME = "other_cache";
    private ConfigurationBuilder defaultConfig;
    Cache c1, c2, c3;
    DISCARD d1, d2, d3;
@@ -208,7 +211,6 @@ public class ClusterTopologyManagerTest extends MultipleCacheManagersTest {
       TestingUtil.waitForRehashToComplete(c2, c3, c4);
    }
 
-   @Test(groups = "unstable")
    public void testClusterRecoveryWithRebalance() throws Exception {
       // Compute the merge coordinator by sorting the JGroups addresses, the same way MERGE2/3 do
       List<Address> members = new ArrayList<Address>(manager(0).getMembers());
@@ -238,24 +240,14 @@ public class ClusterTopologyManagerTest extends MultipleCacheManagersTest {
       if (mergeCoordIndex == 2) d3.setDiscardAll(false);
 
       int viewIdAfterSplit = mergeCoordManager.getTransport().getViewId();
-      final LocalTopologyManager localTopologyManager = TestingUtil.extractGlobalComponent(mergeCoordManager,
-            LocalTopologyManager.class);
       final CheckPoint checkpoint = new CheckPoint();
-      LocalTopologyManager spyLocalTopologyManager = spy(localTopologyManager);
-      doAnswer(new Answer<Object>() {
-         @Override
-         public Object answer(InvocationOnMock invocation) throws Throwable {
-            int viewId = (Integer) invocation.getArguments()[2];
-            checkpoint.trigger("rebalance_" + viewId);
-            log.debugf("Blocking the REBALANCE_START command on the merge coordinator");
-            checkpoint.awaitStrict("merge", 30, TimeUnit.SECONDS);
-            return invocation.callRealMethod();
-         }
-      }).when(spyLocalTopologyManager).handleRebalance(eq(CACHE_NAME), any(CacheTopology.class), anyInt());
-      TestingUtil.replaceComponent(mergeCoordManager, LocalTopologyManager.class, spyLocalTopologyManager, true);
+      blockRebalanceStart(mergeCoordManager, checkpoint, 2);
 
       final EmbeddedCacheManager cm4 = addClusterEnabledCacheManager(defaultConfig,
             new TransportFlags().withFD(true).withMerge(true));
+      blockRebalanceStart(cm4, checkpoint, 2);
+      // Force the initialization of the transport
+      cm4.getCache(OTHER_CACHE_NAME);
       Future<Cache<Object,Object>> cacheFuture = fork(new Callable<Cache<Object, Object>>() {
          @Override
          public Cache<Object, Object> call() throws Exception {
@@ -264,7 +256,7 @@ public class ClusterTopologyManagerTest extends MultipleCacheManagersTest {
       });
 
       log.debugf("Waiting for the REBALANCE_START command to reach the merge coordinator");
-      checkpoint.awaitStrict("rebalance_" + (viewIdAfterSplit + 1), 10, TimeUnit.SECONDS);
+      checkpoint.awaitStrict("rebalance_" + Arrays.asList(mergeCoordAddress, cm4.getAddress()), 10, TimeUnit.SECONDS);
 
       // merge the partitions
       log.debugf("Merging the cluster partitions");
@@ -275,6 +267,7 @@ public class ClusterTopologyManagerTest extends MultipleCacheManagersTest {
       // wait for the JGroups merge
       long startTime = System.currentTimeMillis();
       TestingUtil.blockUntilViewsReceived(30000, cacheManagers);
+      TestingUtil.waitForRehashToComplete(caches(CACHE_NAME));
 
       // unblock the REBALANCE_START command
       log.debugf("Unblocking the REBALANCE_START command on the coordinator");
@@ -297,23 +290,70 @@ public class ClusterTopologyManagerTest extends MultipleCacheManagersTest {
       TestingUtil.waitForRehashToComplete(c1, c2, c3, c4, c5);
    }
 
+   protected void blockRebalanceStart(final EmbeddedCacheManager manager, final CheckPoint checkpoint, final int numMembers)
+         throws InterruptedException {
+      final LocalTopologyManager localTopologyManager = TestingUtil.extractGlobalComponent(manager,
+            LocalTopologyManager.class);
+      LocalTopologyManager spyLocalTopologyManager = spy(localTopologyManager);
+      doAnswer(new Answer<Object>() {
+         @Override
+         public Object answer(InvocationOnMock invocation) throws Throwable {
+            CacheTopology topology = (CacheTopology) invocation.getArguments()[1];
+            List<Address> members = topology.getMembers();
+            checkpoint.trigger("rebalance_" + members);
+            if (members.size() == numMembers) {
+               log.debugf("Blocking the REBALANCE_START command with members %s on %s", members, manager.getAddress());
+               checkpoint.awaitStrict("merge", 30, TimeUnit.SECONDS);
+            }
+            return invocation.callRealMethod();
+         }
+      }).when(spyLocalTopologyManager).handleRebalance(eq(CACHE_NAME), any(CacheTopology.class), anyInt(),
+            any(Address.class));
+      TestingUtil.replaceComponent(manager, LocalTopologyManager.class, spyLocalTopologyManager, true);
+   }
+
    public void testAbruptLeaveAfterGetStatus() throws TimeoutException, InterruptedException {
       // Block the GET_STATUS command on node 2
-      final LocalTopologyManager localTopologyManager = TestingUtil.extractGlobalComponent(manager(1),
+      final LocalTopologyManager localTopologyManager2 = TestingUtil.extractGlobalComponent(manager(1),
             LocalTopologyManager.class);
       final CheckPoint checkpoint = new CheckPoint();
-      LocalTopologyManager spyLocalTopologyManager = spy(localTopologyManager);
+      LocalTopologyManager spyLocalTopologyManager2 = spy(localTopologyManager2);
+      final CacheTopology initialTopology = localTopologyManager2.getCacheTopology(CACHE_NAME);
       doAnswer(new Answer<Object>() {
          @Override
          public Object answer(InvocationOnMock invocation) throws Throwable {
             int viewId = (Integer) invocation.getArguments()[0];
             checkpoint.trigger("GET_STATUS_" + viewId);
-            log.debugf("Blocking the GET_STATUS command on the merge coordinator");
+            log.debugf("Blocking the GET_STATUS command on the new coordinator");
             checkpoint.awaitStrict("3 left", 10, TimeUnit.SECONDS);
             return invocation.callRealMethod();
          }
-      }).when(spyLocalTopologyManager).handleStatusRequest(anyInt());
-      TestingUtil.replaceComponent(manager(1), LocalTopologyManager.class, spyLocalTopologyManager, true);
+      }).when(spyLocalTopologyManager2).handleStatusRequest(anyInt());
+      doAnswer(new Answer<Object>() {
+         @Override
+         public Object answer(InvocationOnMock invocation) throws Throwable {
+            CacheTopology topology = (CacheTopology) invocation.getArguments()[1];
+            if (topology.getRebalanceId() == initialTopology.getRebalanceId() + 1) {
+               log.debugf("Discarding CH update command %s", topology);
+               return null;
+            }
+            return invocation.callRealMethod();
+         }
+      }).when(spyLocalTopologyManager2).handleTopologyUpdate(eq(CACHE_NAME), any(CacheTopology.class),
+            any(AvailabilityMode.class), anyInt(), any(Address.class));
+      doAnswer(new Answer<Object>() {
+         @Override
+         public Object answer(InvocationOnMock invocation) throws Throwable {
+            CacheTopology topology = (CacheTopology) invocation.getArguments()[1];
+            if (topology.getRebalanceId() == initialTopology.getRebalanceId() + 2) {
+               log.debugf("Discarding rebalance command %s", topology);
+               return null;
+            }
+            return invocation.callRealMethod();
+         }
+      }).when(spyLocalTopologyManager2).handleRebalance(eq(CACHE_NAME), any(CacheTopology.class), anyInt(),
+            any(Address.class));
+      TestingUtil.replaceComponent(manager(1), LocalTopologyManager.class, spyLocalTopologyManager2, true);
 
       // Node 1 (the coordinator) dies. Node 2 becomes coordinator and tries to call GET_STATUS
       log.debugf("Killing coordinator");
@@ -326,7 +366,79 @@ public class ClusterTopologyManagerTest extends MultipleCacheManagersTest {
       d3.setDiscardAll(true);
       manager(2).stop();
       TestingUtil.blockUntilViewsReceived(30000, false, manager(1));
-      checkpoint.trigger("3 left");
+      checkpoint.triggerForever("3 left");
+
+      // Wait for node 2 to install a view with only itself and unblock the GET_STATUS command
+      TestingUtil.waitForRehashToComplete(c2);
+   }
+
+   public void testAbruptLeaveAfterGetStatus2() throws TimeoutException, InterruptedException {
+      // Similar to testAbruptLeaveAfterGetStatus, but also test that delayed CacheTopologyControlCommands
+      // are handled properly.
+      // After node 2 becomes the coordinator and the GET_STATUS command is unblocked, it normally installs these topologies:
+      // 1. The recovered topology with 2 and 3 as members (topologyId = initial topologyId + 1, rebalanceId = initial rebalanceId + 1)
+      // 2. A topology starting the rebalance with 2 and 3 (topologyId = initial topologyId + 2, rebalanceId = initial rebalanceId + 2)
+      // 3. A topology with 2 as the only member, but still with a pending CH (topologyId = initialTopologyId + 3, rebalanceId = initial rebalanceId + 2)
+      // 4. A topology ending the rebalance (topologyId = initialTopologyId + 4, rebalanceId = initial rebalanceId + 2)
+      // Sometimes node 2 can confirm the rebalance before receiving the topology in step 3, in which case step 3 is skipped.
+      // We discard the topologies from steps 1 and 2, to test that the topology update in step 3 is enough to start and finish the rebalance.
+
+      // Block the GET_STATUS command on node 2
+      final LocalTopologyManager localTopologyManager2 = TestingUtil.extractGlobalComponent(manager(1),
+            LocalTopologyManager.class);
+      final CheckPoint checkpoint = new CheckPoint();
+      LocalTopologyManager spyLocalTopologyManager2 = spy(localTopologyManager2);
+      final CacheTopology initialTopology = localTopologyManager2.getCacheTopology(CACHE_NAME);
+      doAnswer(new Answer<Object>() {
+         @Override
+         public Object answer(InvocationOnMock invocation) throws Throwable {
+            int viewId = (Integer) invocation.getArguments()[0];
+            checkpoint.trigger("GET_STATUS_" + viewId);
+            log.debugf("Blocking the GET_STATUS command on the new coordinator");
+            checkpoint.awaitStrict("3 left", 10, TimeUnit.SECONDS);
+            return invocation.callRealMethod();
+         }
+      }).when(spyLocalTopologyManager2).handleStatusRequest(anyInt());
+
+      // Delay the first CH_UPDATE after the merge so that it arrives after
+      doAnswer(new Answer<Object>() {
+         @Override
+         public Object answer(InvocationOnMock invocation) throws Throwable {
+            CacheTopology topology = (CacheTopology) invocation.getArguments()[1];
+            if (topology.getRebalanceId() == initialTopology.getRebalanceId() + 1) {
+               log.debugf("Discarding CH update command %s", topology);
+               return null;
+            }
+            return invocation.callRealMethod();
+         }
+      }).when(spyLocalTopologyManager2).handleTopologyUpdate(eq(CACHE_NAME), any(CacheTopology.class),
+            any(AvailabilityMode.class), anyInt(), any(Address.class));
+      doAnswer(new Answer<Object>() {
+         @Override
+         public Object answer(InvocationOnMock invocation) throws Throwable {
+            CacheTopology topology = (CacheTopology) invocation.getArguments()[1];
+            if (topology.getRebalanceId() == initialTopology.getRebalanceId() + 2) {
+               log.debugf("Discarding rebalance command %s", topology);
+               return null;
+            }
+            return invocation.callRealMethod();
+         }
+      }).when(spyLocalTopologyManager2).handleRebalance(eq(CACHE_NAME), any(CacheTopology.class), anyInt(),
+            any(Address.class));
+      TestingUtil.replaceComponent(manager(1), LocalTopologyManager.class, spyLocalTopologyManager2, true);
+
+      // Node 1 (the coordinator) dies. Node 2 becomes coordinator and tries to call GET_STATUS
+      log.debugf("Killing coordinator");
+      manager(0).stop();
+      TestingUtil.blockUntilViewsReceived(30000, false, manager(1), manager(2));
+
+      // Wait for the GET_STATUS command and stop node 3 abruptly
+      int viewId = manager(1).getTransport().getViewId();
+      checkpoint.awaitStrict("GET_STATUS_" + viewId, 10, TimeUnit.SECONDS);
+      d3.setDiscardAll(true);
+      manager(2).stop();
+      TestingUtil.blockUntilViewsReceived(30000, false, manager(1));
+      checkpoint.triggerForever("3 left");
 
       // Wait for node 2 to install a view with only itself and unblock the GET_STATUS command
       TestingUtil.waitForRehashToComplete(c2);
@@ -360,6 +472,21 @@ public class ClusterTopologyManagerTest extends MultipleCacheManagersTest {
       long endTime = System.currentTimeMillis();
       log.debugf("Recovery took %s", Util.prettyPrintTime(endTime - startTime));
       assert endTime - startTime < 30000 : "Recovery took too long: " + Util.prettyPrintTime(endTime - startTime);
+   }
+
+   public void testJoinerBecomesOnlyMember() {
+      // Keep only 2 nodes for this test
+      killMember(2, CACHE_NAME);
+
+      d2.setDiscardAll(true);
+      fork(new Callable<Object>() {
+         @Override
+         public Object call() throws Exception {
+            return cache(1, OTHER_CACHE_NAME);
+         }
+      });
+      TestingUtil.blockUntilViewsReceived(30000, false, manager(1));
+      TestingUtil.waitForRehashToComplete(cache(1, OTHER_CACHE_NAME));
    }
 }
 

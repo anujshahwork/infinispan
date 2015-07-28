@@ -75,14 +75,13 @@ public class StateTransferLockImpl implements StateTransferLock {
    @Override
    public void waitForTransactionData(int expectedTopologyId, long timeout,
                                       TimeUnit unit) throws InterruptedException {
-      if (trace) {
-         log.tracef("Waiting for transaction data for topology %d, current topology is %d", expectedTopologyId,
-               transactionDataTopologyId);
-      }
-
       if (transactionDataTopologyId >= expectedTopologyId)
          return;
 
+      if (trace) {
+         log.tracef("Waiting for transaction data for topology %d, current topology is %d", expectedTopologyId,
+                    transactionDataTopologyId);
+      }
       transactionDataLock.lock();
       try {
          long timeoutNanos = unit.toNanos(timeout);
@@ -150,5 +149,10 @@ public class StateTransferLockImpl implements StateTransferLock {
       if (trace) {
          log.tracef("Topology %d is now installed, expected topology was %d", topologyId, expectedTopologyId);
       }
+   }
+
+   @Override
+   public boolean topologyReceived(int expectedTopologyId) {
+      return topologyId >= expectedTopologyId;
    }
 }

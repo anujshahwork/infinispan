@@ -16,13 +16,13 @@ import org.infinispan.container.DataContainer;
 import org.infinispan.container.entries.ImmortalCacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.InvocationContextFactory;
-import org.infinispan.distribution.L1Manager;
 import org.infinispan.distribution.TestAddress;
 import org.infinispan.distribution.ch.impl.DefaultConsistentHash;
 import org.infinispan.distribution.ch.impl.DefaultConsistentHashFactory;
 import org.infinispan.interceptors.InterceptorChain;
 import org.infinispan.persistence.manager.PersistenceManager;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
+import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.responses.Response;
 import org.infinispan.remoting.responses.SuccessfulResponse;
 import org.infinispan.remoting.rpc.ResponseMode;
@@ -115,7 +115,7 @@ public class StateConsumerTest extends AbstractInfinispanTest {
 
       // create CHes
       DefaultConsistentHashFactory chf = new DefaultConsistentHashFactory();
-      DefaultConsistentHash ch1 = chf.create(new MurmurHash3(), 2, 40, members1, null);
+      DefaultConsistentHash ch1 = chf.create(MurmurHash3.getInstance(), 2, 40, members1, null);
       final DefaultConsistentHash ch2 = chf.updateMembers(ch1, members2, null);
       DefaultConsistentHash ch3 = chf.rebalance(ch2);
       DefaultConsistentHash ch23 = chf.union(ch2, ch3);
@@ -151,7 +151,6 @@ public class StateConsumerTest extends AbstractInfinispanTest {
       InvocationContextFactory icf = mock(InvocationContextFactory.class);
       TotalOrderManager totalOrderManager = mock(TotalOrderManager.class);
       BlockingTaskAwareExecutorService remoteCommandsExecutor = mock(BlockingTaskAwareExecutorService.class);
-      L1Manager l1Manager = mock(L1Manager.class);
 
       when(commandsFactory.buildStateRequestCommand(any(StateRequestCommand.Type.class), any(Address.class), anyInt(), any(Set.class))).thenAnswer(new Answer<StateRequestCommand>() {
          @Override
@@ -190,7 +189,7 @@ public class StateConsumerTest extends AbstractInfinispanTest {
       when(rpcManager.getRpcOptionsBuilder(any(ResponseMode.class))).thenAnswer(new Answer<RpcOptionsBuilder>() {
          public RpcOptionsBuilder answer(InvocationOnMock invocation) {
             Object[] args = invocation.getArguments();
-            return new RpcOptionsBuilder(10000, TimeUnit.MILLISECONDS, (ResponseMode) args[0], true);
+            return new RpcOptionsBuilder(10000, TimeUnit.MILLISECONDS, (ResponseMode) args[0], DeliverOrder.PER_SENDER);
          }
       });
 
@@ -199,7 +198,7 @@ public class StateConsumerTest extends AbstractInfinispanTest {
       final StateConsumerImpl stateConsumer = new StateConsumerImpl();
       stateConsumer.init(cache, pooledExecutorService, stateTransferManager, interceptorChain, icf, configuration, rpcManager, null,
             commandsFactory, persistenceManager, dataContainer, transactionTable, stateTransferLock, cacheNotifier,
-            totalOrderManager, remoteCommandsExecutor, l1Manager, new CommitManager(AnyEquivalence.getInstance()));
+            totalOrderManager, remoteCommandsExecutor, new CommitManager(AnyEquivalence.getInstance()));
       stateConsumer.start();
 
       final List<InternalCacheEntry> cacheEntries = new ArrayList<InternalCacheEntry>();
@@ -218,12 +217,12 @@ public class StateConsumerTest extends AbstractInfinispanTest {
 
       assertFalse(stateConsumer.hasActiveTransfers());
 
-      // node 481 leaves
-      stateConsumer.onTopologyUpdate(new CacheTopology(1, ch2, null), false);
+      // node 4 leaves
+      stateConsumer.onTopologyUpdate(new CacheTopology(1, 1, ch2, null, ch2.getMembers()), false);
       assertFalse(stateConsumer.hasActiveTransfers());
 
       // start a rebalance
-      stateConsumer.onTopologyUpdate(new CacheTopology(2, ch2, ch3, ch23), true);
+      stateConsumer.onTopologyUpdate(new CacheTopology(2, 2, ch2, ch3, ch23, ch23.getMembers()), true);
       assertTrue(stateConsumer.hasActiveTransfers());
 
       // check that all segments have been requested
@@ -237,18 +236,18 @@ public class StateConsumerTest extends AbstractInfinispanTest {
       Future<Object> future = fork(new Callable<Object>() {
          @Override
          public Object call() throws Exception {
-            stateConsumer.onTopologyUpdate(new CacheTopology(3, ch2, null), false);
+            stateConsumer.onTopologyUpdate(new CacheTopology(3, 2, ch2, null, ch2.getMembers()), false);
             return null;
          }
       });
-      stateConsumer.onTopologyUpdate(new CacheTopology(3, ch2, null), false);
+      stateConsumer.onTopologyUpdate(new CacheTopology(3, 2, ch2, null, ch2.getMembers()), false);
       future.get();
       assertFalse(stateConsumer.hasActiveTransfers());
 
 
       // restart the rebalance
       requestedSegments.clear();
-      stateConsumer.onTopologyUpdate(new CacheTopology(4, ch2, ch3, ch23), true);
+      stateConsumer.onTopologyUpdate(new CacheTopology(4, 4, ch2, ch3, ch23, ch23.getMembers()), true);
       assertTrue(stateConsumer.hasActiveTransfers());
       assertEquals(flatRequestedSegments, newSegments);
 

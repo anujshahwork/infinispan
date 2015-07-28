@@ -175,7 +175,7 @@ public class JdbcBinaryStore implements AdvancedLoadWriteStore {
    }
 
    @Override
-   public void process(final KeyFilter filter, final CacheLoaderTask task, Executor executor, boolean fetchValue, boolean fetchMetadata) {
+   public void process(final KeyFilter filter, final CacheLoaderTask task, Executor executor, final boolean fetchValue, final boolean fetchMetadata) {
       Connection conn = null;
       PreparedStatement ps = null;
       ResultSet rs = null;
@@ -185,10 +185,10 @@ public class JdbcBinaryStore implements AdvancedLoadWriteStore {
             log.tracef("Running sql %s", sql);
          }
          conn = connectionFactory.getConnection();
-         ps = conn.prepareStatement(sql);
+         ps = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
          ps.setLong(1, ctx.getTimeService().wallClockTime());
+         ps.setFetchSize(tableManipulation.getFetchSize());
          rs = ps.executeQuery();
-         rs.setFetchSize(tableManipulation.getFetchSize());
          ExecutorAllCompletionService ecs = new ExecutorAllCompletionService(executor);
          final TaskContextImpl taskContext = new TaskContextImpl();
          //we can do better here: ATM we load the entries in the caller's thread and process them in parallel
@@ -202,6 +202,10 @@ public class JdbcBinaryStore implements AdvancedLoadWriteStore {
                   try {
                      for (MarshalledEntry me : bucket.getStoredEntries(filter, ctx.getTimeService()).values()) {
                         if (!taskContext.isStopped()) {
+                           if (!fetchValue || !fetchMetadata) {
+                              me = ctx.getMarshalledEntryFactory().newMarshalledEntry(me.getKey(),
+                                    fetchValue ? me.getValue() : null, fetchMetadata ? me.getMetadata() : null);
+                           }
                            task.processEntry(me, taskContext);
                         }
                      }

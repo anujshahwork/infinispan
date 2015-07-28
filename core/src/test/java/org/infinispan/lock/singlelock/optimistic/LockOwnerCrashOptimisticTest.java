@@ -2,13 +2,15 @@ package org.infinispan.lock.singlelock.optimistic;
 
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.lock.singlelock.AbstractLockOwnerCrashTest;
+import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.CleanupAfterMethod;
 import org.infinispan.transaction.LockingMode;
 import org.infinispan.transaction.tm.DummyTransaction;
 import org.testng.annotations.Test;
 
-import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.fail;
+import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.fail;
+
 
 /**
  * @author Mircea Markus
@@ -26,7 +28,7 @@ public class LockOwnerCrashOptimisticTest extends AbstractLockOwnerCrashTest {
 
    public void testLockOwnerCrashesBeforePrepare() throws Exception {
       final Object k = getKeyForCache(2);
-      fork(new Runnable() {
+      inNewThread(new Runnable() {
          @Override
          public void run() {
             try {
@@ -34,10 +36,10 @@ public class LockOwnerCrashOptimisticTest extends AbstractLockOwnerCrashTest {
                cache(1).put(k, "v");
                transaction = (DummyTransaction) tm(1).getTransaction();
             } catch (Throwable e) {
-               e.printStackTrace();
+               log.errorf(e, "Error starting transaction for key %s", k);
             }
          }
-      }, false);
+      });
 
       eventually(new Condition() {
          @Override
@@ -52,8 +54,8 @@ public class LockOwnerCrashOptimisticTest extends AbstractLockOwnerCrashTest {
       tm(1).resume(transaction);
       tm(1).commit();
 
-      assertEquals(cache(0).get(k), "v");
-      assertEquals(cache(1).get(k), "v");
+      assertEquals("v", cache(0).get(k));
+      assertEquals("v", cache(1).get(k));
 
       assertNotLocked(k);
       eventually(new Condition() {
@@ -66,7 +68,7 @@ public class LockOwnerCrashOptimisticTest extends AbstractLockOwnerCrashTest {
 
    public void lockOwnerCrasherBetweenPrepareAndCommit() throws Exception {
       final Object k = getKeyForCache(2);
-      fork(new Runnable() {
+      inNewThread(new Runnable() {
          @Override
          public void run() {
             try {
@@ -75,10 +77,10 @@ public class LockOwnerCrashOptimisticTest extends AbstractLockOwnerCrashTest {
                transaction = (DummyTransaction) tm(1).getTransaction();
                transaction.runPrepare();
             } catch (Throwable e) {
-               e.printStackTrace();
+               log.errorf(e, "Error preparing transaction for key %s", k);
             }
          }
-      }, false);
+      });
 
 
       eventually(new Condition() {
@@ -98,7 +100,7 @@ public class LockOwnerCrashOptimisticTest extends AbstractLockOwnerCrashTest {
          tm(1).commit();
          fail("Exception expected as lock cannot be acquired on k=" + k);
       } catch (Exception e) {
-         e.printStackTrace();
+         log.debugf(e, "Expected error committing transaction for key %s", k);
       }
 
 
@@ -108,7 +110,7 @@ public class LockOwnerCrashOptimisticTest extends AbstractLockOwnerCrashTest {
          tm(0).commit();
          fail("Exception expected as lock cannot be acquired on k=" + k);
       } catch (Exception e) {
-         //expected
+         log.debugf(e, "Expected error committing transaction for key %s", k);
       }
 
       tm(1).resume(transaction);

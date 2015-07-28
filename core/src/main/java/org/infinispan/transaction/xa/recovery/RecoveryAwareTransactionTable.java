@@ -2,7 +2,7 @@ package org.infinispan.transaction.xa.recovery;
 
 import org.infinispan.commons.CacheException;
 import org.infinispan.factories.annotations.Inject;
-import org.infinispan.topology.CacheTopology;
+import org.infinispan.remoting.transport.Address;
 import org.infinispan.transaction.impl.LocalTransaction;
 import org.infinispan.transaction.impl.RemoteTransaction;
 import org.infinispan.transaction.xa.GlobalTransaction;
@@ -13,7 +13,6 @@ import org.infinispan.util.logging.LogFactory;
 
 import javax.transaction.Transaction;
 import javax.transaction.xa.Xid;
-
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -40,8 +39,8 @@ public class RecoveryAwareTransactionTable extends XaTransactionTable {
 
    /**
     * Marks the transaction as prepared. If at a further point the originator fails, the transaction is removed form the
-    * "normal" transactions collection and moved into the cache that holds in-doubt transactions. See {@link
-    * #cleanupStaleTransactions(org.infinispan.topology.CacheTopology)}
+    * "normal" transactions collection and moved into the cache that holds in-doubt transactions.
+    * See {@link #cleanupLeaverTransactions(java.util.List)}
     */
    @Override
    public void remoteTransactionPrepared(GlobalTransaction gtx) {
@@ -64,27 +63,21 @@ public class RecoveryAwareTransactionTable extends XaTransactionTable {
    /**
     * First moves the prepared transactions originated on the leavers into the recovery cache and then cleans up the
     * transactions that are not yet prepared.
-    * @param cacheTopology
+    * @param members The list of cluster members
     */
    @Override
-   public void cleanupStaleTransactions(CacheTopology cacheTopology) {
-      // We only care about transactions originated before this topology update
-      if (getMinTopologyId() >= cacheTopology.getTopologyId())
-         return;
-
+   public void cleanupLeaverTransactions(List<Address> members) {
       Iterator<RemoteTransaction> it = getRemoteTransactions().iterator();
       while (it.hasNext()) {
          RecoveryAwareRemoteTransaction recTx = (RecoveryAwareRemoteTransaction) it.next();
-         if (recTx.getTopologyId() < cacheTopology.getTopologyId()) {
-            recTx.computeOrphan(cacheTopology.getMembers());
-            if (recTx.isInDoubt()) {
-               recoveryManager.registerInDoubtTransaction(recTx);
-               it.remove();
-            }
+         recTx.computeOrphan(members);
+         if (recTx.isInDoubt()) {
+            recoveryManager.registerInDoubtTransaction(recTx);
+            it.remove();
          }
       }
       //this cleans up the transactions that are not yet prepared
-      super.cleanupStaleTransactions(cacheTopology);
+      super.cleanupLeaverTransactions(members);
    }
 
    @Override
@@ -123,6 +116,8 @@ public class RecoveryAwareTransactionTable extends XaTransactionTable {
 
    @Override
    public void failureCompletingTransaction(Transaction tx) {
+      // TODO Change the Transaction parameter to LocalTransaction to avoid the reverse lookup and the
+      // NullPointerException when called from RecoveryManagerImpl.forceTransactionCompletion
       RecoveryAwareLocalTransaction localTx = (RecoveryAwareLocalTransaction) getLocalTransaction(tx);
       if (localTx == null)
          throw new CacheException(String.format("Local transaction for transaction (%s) not found", tx));

@@ -86,6 +86,10 @@ public class StateResponseCommand extends BaseRpcCommand {
       return new Object[]{getOrigin(), topologyId, stateChunks};
    }
 
+   public int getTopologyId() {
+      return topologyId;
+   }
+
    @Override
    public void setParameters(int commandId, Object[] parameters) {
       int i = 0;
@@ -98,6 +102,7 @@ public class StateResponseCommand extends BaseRpcCommand {
    public String toString() {
       return "StateResponseCommand{" +
             "cache=" + cacheName +
+            ", stateChunks=" + stateChunks +
             ", origin=" + getOrigin() +
             ", topologyId=" + topologyId +
             '}';

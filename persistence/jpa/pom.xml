@@ -1,10 +1,10 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<?xml version='1.0' encoding='UTF-8'?>
+<project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd" xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
    <modelVersion>4.0.0</modelVersion>
    <parent>
       <groupId>org.infinispan</groupId>
       <artifactId>infinispan-persistence-parent</artifactId>
-      <version>7.0.0-SNAPSHOT</version>
+      <version>8.0.0-SNAPSHOT</version>
       <relativePath>../pom.xml</relativePath>
    </parent>
 
@@ -12,11 +12,6 @@
    <packaging>bundle</packaging>
    <name>Infinispan JPA CacheStore</name>
    <description>Infinispan JPA CacheStore module</description>
-
-   <properties>
-      <!-- Tests against single database cannot be executed in paralllel -->
-      <infinispan.test.parallel.threads>1</infinispan.test.parallel.threads>
-   </properties>
 
    <build>
       <resources>
@@ -31,14 +26,32 @@
             <directory>${project.basedir}/src/main/resources</directory>
             <filtering>false</filtering>
             <includes>
+               <include>schema/*-${infinispan.core.schema.version}.xsd</include>
+            </includes>
+         </resource>
+         <resource>
+            <directory>${project.basedir}/src/main/resources</directory>
+            <filtering>false</filtering>
+            <includes>
                <include>**/*</include>
             </includes>
             <excludes>
                <exclude>features.xml</exclude>
+               <exclude>schema/**</exclude>
             </excludes>
          </resource>
       </resources>
       <plugins>
+         <plugin>
+            <groupId>org.scala-tools</groupId>
+            <artifactId>maven-scala-plugin</artifactId>
+            <executions>
+               <execution>
+                  <id>generate-blueprint</id>
+                  <phase>prepare-package</phase>
+               </execution>
+            </executions>
+         </plugin>
          <plugin>
             <groupId>org.apache.felix</groupId>
             <artifactId>maven-bundle-plugin</artifactId>
@@ -47,12 +60,14 @@
                   <Export-Package>
                      ${project.groupId}.persistence.jpa.*;version=${project.version};-split-package:=error
                   </Export-Package>
-                  <Import-Package><![CDATA[
-                  org.osgi.framework;version="$<range;[==,+)>",
+                  <Import-Package>
                   *
-                  ]]>
                   </Import-Package>
-                  <!-- Required for driver loading. -->
+                  <Include-Resource>
+                     {maven-resources},
+                     /META-INF/services=${project.basedir}/target/classes/META-INF/services,
+                     /OSGI-INF/blueprint/blueprint.xml=${project.basedir}/target/classes/OSGI-INF/blueprint/blueprint.xml
+                  </Include-Resource>
                   <DynamicImport-Package>*</DynamicImport-Package>
                </instructions>
             </configuration>
@@ -79,6 +94,14 @@
                </execution>
             </executions>
          </plugin>
+         <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <configuration>
+               
+               <threadCount>1</threadCount>
+            </configuration>
+         </plugin>
       </plugins>
    </build>
    <dependencies>
@@ -89,7 +112,7 @@
       </dependency>
       <dependency>
          <groupId>org.hibernate.javax.persistence</groupId>
-         <artifactId>hibernate-jpa-2.0-api</artifactId>
+         <artifactId>hibernate-jpa-2.1-api</artifactId>
          <scope>provided</scope>
       </dependency>
       <dependency>
@@ -105,10 +128,17 @@
       <dependency>
          <groupId>org.osgi</groupId>
          <artifactId>org.osgi.core</artifactId>
+         <scope>provided</scope>
       </dependency>
       <dependency>
          <groupId>org.osgi</groupId>
          <artifactId>org.osgi.compendium</artifactId>
+         <scope>provided</scope>
+      </dependency>
+      <dependency>
+         <groupId>org.kohsuke.metainf-services</groupId>
+         <artifactId>metainf-services</artifactId>
+         <optional>true</optional>
       </dependency>
    </dependencies>
 
@@ -193,4 +223,3 @@
       </profile>
    </profiles>
 </project>
-

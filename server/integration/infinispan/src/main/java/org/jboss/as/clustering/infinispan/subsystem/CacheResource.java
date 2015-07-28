@@ -22,10 +22,6 @@
 
 package org.jboss.as.clustering.infinispan.subsystem;
 
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamWriter;
-
-import org.jboss.as.controller.AbstractAddStepHandler;
 import org.jboss.as.controller.AttributeDefinition;
 import org.jboss.as.controller.AttributeMarshaller;
 import org.jboss.as.controller.OperationDefinition;
@@ -45,6 +41,9 @@ import org.jboss.dmr.ModelNode;
 import org.jboss.dmr.ModelType;
 import org.jboss.dmr.Property;
 
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamWriter;
+
 /**
  * Base class for cache resources which require common cache attributes only.
  *
@@ -57,7 +56,7 @@ public class CacheResource extends SimpleResourceDefinition {
             new SimpleAttributeDefinitionBuilder(ModelKeys.BATCHING, ModelType.BOOLEAN, true)
                     .setXmlName(Attribute.BATCHING.getLocalName())
                     .setAllowExpression(true)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .setDefaultValue(new ModelNode().set(false))
                     .build();
 
@@ -65,7 +64,7 @@ public class CacheResource extends SimpleResourceDefinition {
             new SimpleAttributeDefinitionBuilder(ModelKeys.MODULE, ModelType.STRING, true)
                     .setXmlName(Attribute.MODULE.getLocalName())
                     .setAllowExpression(true)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .setValidator(new ModuleIdentifierValidator(true))
                     .build();
 
@@ -73,9 +72,17 @@ public class CacheResource extends SimpleResourceDefinition {
             new SimpleAttributeDefinitionBuilder(ModelKeys.INDEXING, ModelType.STRING, true)
                     .setXmlName(Attribute.INDEX.getLocalName())
                     .setAllowExpression(true)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
-                    .setValidator(new EnumValidator<Indexing>(Indexing.class, true, false))
+                    .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+                    .setValidator(new EnumValidator<>(Indexing.class, true, false))
                     .setDefaultValue(new ModelNode().set(Indexing.NONE.name()))
+                    .build();
+
+    static final SimpleAttributeDefinition INDEXING_AUTO_CONFIG =
+            new SimpleAttributeDefinitionBuilder(ModelKeys.AUTO_CONFIG, ModelType.BOOLEAN, true)
+                    .setXmlName(Attribute.AUTO_CONFIG.getLocalName())
+                    .setAllowExpression(true)
+                    .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+                    .setDefaultValue(new ModelNode().set(false))
                     .build();
 
     static final SimpleMapAttributeDefinition INDEXING_PROPERTIES = new SimpleMapAttributeDefinition.Builder(ModelKeys.INDEXING_PROPERTIES, true)
@@ -101,82 +108,152 @@ public class CacheResource extends SimpleResourceDefinition {
             new SimpleAttributeDefinitionBuilder(ModelKeys.JNDI_NAME, ModelType.STRING, true)
                     .setXmlName(Attribute.JNDI_NAME.getLocalName())
                     .setAllowExpression(true)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .build();
 
     static final SimpleAttributeDefinition START =
             new SimpleAttributeDefinitionBuilder(ModelKeys.START, ModelType.STRING, true)
                     .setXmlName(Attribute.START.getLocalName())
                     .setAllowExpression(true)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
-                    .setValidator(new EnumValidator<StartMode>(StartMode.class, true, false))
-                    .setDefaultValue(new ModelNode().set(StartMode.LAZY.name()))
+                    .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+                    .setValidator(new EnumValidator<>(StartMode.class, true, false))
+                    .setDefaultValue(new ModelNode().set(StartMode.EAGER.name()))
                     .build();
 
     static final SimpleAttributeDefinition STATISTICS =
             new SimpleAttributeDefinitionBuilder(ModelKeys.STATISTICS, ModelType.BOOLEAN, true)
                     .setXmlName(Attribute.STATISTICS.getLocalName())
-                    .setAllowExpression(true)
+                    .setAllowExpression(false)
                     .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
-                    .setDefaultValue(new ModelNode().set(true))
+                    .setDefaultValue(new ModelNode().set(false))
                     .build();
 
-    static final AttributeDefinition[] CACHE_ATTRIBUTES = {BATCHING, CACHE_MODULE, INDEXING, INDEXING_PROPERTIES, JNDI_NAME, START, STATISTICS};
+   static final SimpleAttributeDefinition STATISTICS_AVAILABLE =
+         new SimpleAttributeDefinitionBuilder(ModelKeys.STATISTICS_AVAILABLE, ModelType.BOOLEAN, true)
+               .setXmlName(Attribute.STATISTICS_AVAILABLE.getLocalName())
+               .setAllowExpression(false)
+               .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+               .setDefaultValue(new ModelNode().set(true))
+               .build();
+
+   static final SimpleAttributeDefinition MIGRATOR_NAME =
+            new SimpleAttributeDefinitionBuilder(ModelKeys.MIGRATOR_NAME, ModelType.STRING, true)
+                   .setAllowExpression(false)
+                   .build();
+
+    static final SimpleAttributeDefinition REMOTE_CACHE =
+            new SimpleAttributeDefinitionBuilder(ModelKeys.REMOTE_CACHE, ModelType.STRING, true)
+                   .setXmlName(Attribute.REMOTE_CACHE.getLocalName())
+                   .setAllowExpression(false)
+                   .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+                   .build();
+
+    static final SimpleAttributeDefinition REMOTE_SITE =
+            new SimpleAttributeDefinitionBuilder(ModelKeys.REMOTE_SITE, ModelType.STRING, true)
+                   .setXmlName(Attribute.REMOTE_SITE.getLocalName())
+                   .setAllowExpression(false)
+                   .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
+                   .build();
+
+    static final AttributeDefinition[] CACHE_ATTRIBUTES = {BATCHING, CACHE_MODULE, INDEXING, INDEXING_AUTO_CONFIG, INDEXING_PROPERTIES, JNDI_NAME, START, STATISTICS, STATISTICS_AVAILABLE, REMOTE_CACHE, REMOTE_SITE};
 
     // here for legacy purposes only
     static final SimpleAttributeDefinition NAME =
             new SimpleAttributeDefinitionBuilder(ModelKeys.NAME, ModelType.STRING, true)
                     .setXmlName(Attribute.NAME.getLocalName())
                     .setAllowExpression(false)
-                    .setFlags(AttributeAccess.Flag.RESTART_ALL_SERVICES)
+                    .setFlags(AttributeAccess.Flag.RESTART_RESOURCE_SERVICES)
                     .build();
 
     // operations
     static final OperationDefinition CLEAR_CACHE =
             new SimpleOperationDefinitionBuilder("clear-cache",
-                    InfinispanExtension.getResourceDescriptionResolver("cache")
+                    new InfinispanResourceDescriptionResolver("cache")
+            ).build();
+    static final OperationDefinition STOP_CACHE =
+            new SimpleOperationDefinitionBuilder("stop-cache",
+                    new InfinispanResourceDescriptionResolver("cache")
+            ).build();
+    static final OperationDefinition START_CACHE =
+            new SimpleOperationDefinitionBuilder("start-cache",
+                    new InfinispanResourceDescriptionResolver("cache")
             ).build();
     static final OperationDefinition RESET_STATISTICS =
             new SimpleOperationDefinitionBuilder("reset-statistics",
-                    InfinispanExtension.getResourceDescriptionResolver("cache")
+                    new InfinispanResourceDescriptionResolver("cache")
             ).build();
     static final OperationDefinition RESET_ACTIVATION_STATISTICS =
             new SimpleOperationDefinitionBuilder(
                     "reset-activation-statistics",
-                    InfinispanExtension.getResourceDescriptionResolver("cache")
+                    new InfinispanResourceDescriptionResolver("cache")
             ).build();
     static final OperationDefinition RESET_INVALIDATION_STATISTICS =
             new SimpleOperationDefinitionBuilder(
                     "reset-invalidation-statistics",
-                    InfinispanExtension.getResourceDescriptionResolver("cache")
+                    new InfinispanResourceDescriptionResolver("cache")
             ).build();
     static final OperationDefinition RESET_PASSIVATION_STATISTICS =
             new SimpleOperationDefinitionBuilder(
                     "reset-passivation-statistics",
-                    InfinispanExtension.getResourceDescriptionResolver("cache")
+                    new InfinispanResourceDescriptionResolver("cache")
             ).build();
+    static final OperationDefinition RESET_RPC_MANAGER_STATISTICS =
+            new SimpleOperationDefinitionBuilder(
+                    "reset-rpc-manager-statistics",
+                    new InfinispanResourceDescriptionResolver("cache")
+            ).build();
+
+    static final OperationDefinition SYNCHRONIZE_DATA =
+           new SimpleOperationDefinitionBuilder(
+                   "synchronize-data",
+                   new InfinispanResourceDescriptionResolver("cache")
+           ).setParameters(MIGRATOR_NAME).build();
+
+    static final OperationDefinition DISCONNECT_SOURCE =
+           new SimpleOperationDefinitionBuilder(
+                  "disconnect-source",
+                  new InfinispanResourceDescriptionResolver("cache")
+           ).setParameters(MIGRATOR_NAME).build();
+
+    static final OperationDefinition RECORD_KNOWN_GLOBAL_KEYSET =
+           new SimpleOperationDefinitionBuilder(
+                  "record-known-global-keyset",
+                  new InfinispanResourceDescriptionResolver("cache")
+           ).build();
+
+    static final OperationDefinition MASS_REINDEX =
+          new SimpleOperationDefinitionBuilder(
+                  "mass-reindex",
+                  new InfinispanResourceDescriptionResolver("cache")
+          ).build();
 
 
     protected final ResolvePathHandler resolvePathHandler;
     protected final boolean runtimeRegistration;
-    public CacheResource(PathElement pathElement, ResourceDescriptionResolver descriptionResolver, AbstractAddStepHandler addHandler, OperationStepHandler removeHandler, ResolvePathHandler resolvePathHandler, boolean runtimeRegistration) {
-        super(pathElement, descriptionResolver, addHandler, removeHandler);
+    private final CacheAdd cacheAddHandler;
+
+    public CacheResource(PathElement pathElement, ResourceDescriptionResolver descriptionResolver, CacheAdd cacheAddHandler, OperationStepHandler removeHandler, ResolvePathHandler resolvePathHandler, boolean runtimeRegistration) {
+        super(pathElement, descriptionResolver, cacheAddHandler, removeHandler);
+        this.cacheAddHandler = cacheAddHandler;
         this.resolvePathHandler = resolvePathHandler;
         this.runtimeRegistration = runtimeRegistration;
+    }
+
+    public CacheAdd getCacheAddHandler() {
+        return cacheAddHandler;
+    }
+
+    public boolean isRuntimeRegistration() {
+        return runtimeRegistration;
     }
 
     @Override
     public void registerAttributes(ManagementResourceRegistration resourceRegistration) {
         super.registerAttributes(resourceRegistration);
 
-        // do we really need a special handler here?
-        final OperationStepHandler writeHandler = new CacheWriteAttributeHandler(CACHE_ATTRIBUTES);
+        final OperationStepHandler restartWriteHandler = new RestartCacheWriteAttributeHandler(getPathElement().getKey(), cacheAddHandler, CACHE_ATTRIBUTES);
         for (AttributeDefinition attr : CACHE_ATTRIBUTES) {
-            resourceRegistration.registerReadWriteAttribute(attr, CacheReadAttributeHandler.INSTANCE, writeHandler);
-        }
-
-        if (runtimeRegistration) {
-            CacheMetricsHandler.INSTANCE.registerCommonMetrics(resourceRegistration);
+            resourceRegistration.registerReadWriteAttribute(attr, CacheReadAttributeHandler.INSTANCE, restartWriteHandler);
         }
     }
 
@@ -185,10 +262,17 @@ public class CacheResource extends SimpleResourceDefinition {
         super.registerOperations(resourceRegistration);
         if (runtimeRegistration) {
             resourceRegistration.registerOperationHandler(CacheResource.CLEAR_CACHE, CacheCommands.ClearCacheCommand.INSTANCE);
+            resourceRegistration.registerOperationHandler(CacheResource.START_CACHE, CacheCommands.StartCacheCommand.INSTANCE);
+            resourceRegistration.registerOperationHandler(CacheResource.STOP_CACHE, CacheCommands.StopCacheCommand.INSTANCE);
             resourceRegistration.registerOperationHandler(CacheResource.RESET_STATISTICS, CacheCommands.ResetCacheStatisticsCommand.INSTANCE);
             resourceRegistration.registerOperationHandler(CacheResource.RESET_ACTIVATION_STATISTICS, CacheCommands.ResetActivationStatisticsCommand.INSTANCE);
-            resourceRegistration.registerOperationHandler(CacheResource.RESET_INVALIDATION_STATISTICS, CacheCommands.ResetPassivationStatisticsCommand.INSTANCE);
+            resourceRegistration.registerOperationHandler(CacheResource.RESET_INVALIDATION_STATISTICS, CacheCommands.ResetInvalidationStatisticsCommand.INSTANCE);
             resourceRegistration.registerOperationHandler(CacheResource.RESET_PASSIVATION_STATISTICS, CacheCommands.ResetPassivationStatisticsCommand.INSTANCE);
+            resourceRegistration.registerOperationHandler(CacheResource.RESET_RPC_MANAGER_STATISTICS, CacheCommands.ResetRpcManagerStatisticsCommand.INSTANCE);
+            resourceRegistration.registerOperationHandler(CacheResource.DISCONNECT_SOURCE, CacheCommands.DisconnectSourceCommand.INSTANCE);
+            resourceRegistration.registerOperationHandler(CacheResource.RECORD_KNOWN_GLOBAL_KEYSET, CacheCommands.RecordGlobalKeySetCommand.INSTANCE);
+            resourceRegistration.registerOperationHandler(CacheResource.SYNCHRONIZE_DATA, CacheCommands.SynchronizeDataCommand.INSTANCE);
+            resourceRegistration.registerOperationHandler(CacheResource.MASS_REINDEX, CacheCommands.MassReindexCommand.INSTANCE);
         }
     }
 
@@ -196,22 +280,23 @@ public class CacheResource extends SimpleResourceDefinition {
     public void registerChildren(ManagementResourceRegistration resourceRegistration) {
         super.registerChildren(resourceRegistration);
 
-        resourceRegistration.registerSubModel(new LockingResource());
-        resourceRegistration.registerSubModel(new TransactionResource(runtimeRegistration));
-        resourceRegistration.registerSubModel(new EvictionResource());
-        resourceRegistration.registerSubModel(new ExpirationResource());
-        resourceRegistration.registerSubModel(new CompatibilityResource());
-        resourceRegistration.registerSubModel(new LoaderResource());
-        resourceRegistration.registerSubModel(new ClusterLoaderResource());
-        resourceRegistration.registerSubModel(new BackupSiteResource(runtimeRegistration));
-        resourceRegistration.registerSubModel(new StoreResource());
-        resourceRegistration.registerSubModel(new FileStoreResource(resolvePathHandler));
-        resourceRegistration.registerSubModel(new StringKeyedJDBCStoreResource());
-        resourceRegistration.registerSubModel(new BinaryKeyedJDBCStoreResource());
-        resourceRegistration.registerSubModel(new MixedKeyedJDBCStoreResource());
-        resourceRegistration.registerSubModel(new RemoteStoreResource());
-        resourceRegistration.registerSubModel(new LevelDBStoreResource(resolvePathHandler));
-        resourceRegistration.registerSubModel(new RestStoreResource());
-        resourceRegistration.registerSubModel(new CacheSecurityResource());
+        resourceRegistration.registerSubModel(new LockingResource(this));
+        resourceRegistration.registerSubModel(new TransactionResource(this));
+        resourceRegistration.registerSubModel(new EvictionResource(this));
+        resourceRegistration.registerSubModel(new ExpirationResource(this));
+        resourceRegistration.registerSubModel(new CompatibilityResource(this));
+        resourceRegistration.registerSubModel(new LoaderResource(this));
+        resourceRegistration.registerSubModel(new ClusterLoaderResource(this));
+        resourceRegistration.registerSubModel(new BackupSiteResource(this));
+        resourceRegistration.registerSubModel(new StoreResource(this));
+        resourceRegistration.registerSubModel(new FileStoreResource(this, resolvePathHandler));
+        resourceRegistration.registerSubModel(new StringKeyedJDBCStoreResource(this));
+        resourceRegistration.registerSubModel(new BinaryKeyedJDBCStoreResource(this));
+        resourceRegistration.registerSubModel(new MixedKeyedJDBCStoreResource(this));
+        resourceRegistration.registerSubModel(new RemoteStoreResource(this));
+        resourceRegistration.registerSubModel(new LevelDBStoreResource(this, resolvePathHandler));
+        resourceRegistration.registerSubModel(new RestStoreResource(this));
+        resourceRegistration.registerSubModel(new CacheSecurityResource(this));
     }
+
 }

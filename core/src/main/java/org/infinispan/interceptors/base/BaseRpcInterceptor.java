@@ -7,6 +7,7 @@ import org.infinispan.context.impl.LocalTxInvocationContext;
 import org.infinispan.context.impl.TxInvocationContext;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
+import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.responses.Response;
 import org.infinispan.remoting.responses.SelfDeliverFilter;
 import org.infinispan.remoting.responses.TimeoutValidationResponseFilter;
@@ -32,14 +33,12 @@ import java.util.Set;
 public abstract class BaseRpcInterceptor extends CommandInterceptor {
 
    protected RpcManager rpcManager;
-   private StateConsumer stateConsumer;
 
    protected boolean defaultSynchronous;
 
    @Inject
    public void inject(RpcManager rpcManager, StateConsumer stateConsumer) {
       this.rpcManager = rpcManager;
-      this.stateConsumer = stateConsumer;
    }
 
    @Start
@@ -69,9 +68,14 @@ public abstract class BaseRpcInterceptor extends CommandInterceptor {
          return false;
       }
 
+      // Skip the remote invocation if this is a state transfer transaction
+      LocalTxInvocationContext localCtx = (LocalTxInvocationContext) ctx;
+      if (localCtx.getCacheTransaction().getStateTransferFlag() == Flag.PUT_FOR_STATE_TRANSFER) {
+         return false;
+      }
+
       // just testing for empty modifications isn't enough - the Lock API may acquire locks on keys but won't
       // register a Modification.  See ISPN-711.
-      LocalTxInvocationContext localCtx = (LocalTxInvocationContext) ctx;
       boolean shouldInvokeRemotely = ctx.hasModifications() || !localCtx.getRemoteLocksAcquired().isEmpty() ||
          localCtx.getCacheTransaction().getTopologyId() != rpcManager.getTopologyId();
 
@@ -106,31 +110,32 @@ public abstract class BaseRpcInterceptor extends CommandInterceptor {
             && !((LocalTransaction)ctx.getCacheTransaction()).isCommitOrRollbackSent();
    }
 
-   protected final Map<Address, Response> totalOrderAnycastPrepare(Collection<Address> recipients,
-                                                                   PrepareCommand prepareCommand,
-                                                                   TimeoutValidationResponseFilter responseFilter) {
-      Set<Address> realRecipients = new HashSet<Address>(recipients);
-      realRecipients.add(rpcManager.getAddress());
+   protected final Map<Address, Response> totalOrderPrepare(Collection<Address> recipients,
+         PrepareCommand prepareCommand,
+         TimeoutValidationResponseFilter responseFilter) {
+      Set<Address> realRecipients = null;
+      if (recipients != null) {
+         realRecipients = new HashSet<>(recipients);
+         realRecipients.add(rpcManager.getAddress());
+      }
       return internalTotalOrderPrepare(realRecipients, prepareCommand, responseFilter);
    }
 
    private Map<Address, Response> internalTotalOrderPrepare(Collection<Address> recipients, PrepareCommand prepareCommand,
                                                             TimeoutValidationResponseFilter responseFilter) {
       if (defaultSynchronous) {
-         RpcOptionsBuilder builder = rpcManager.getRpcOptionsBuilder(ResponseMode.SYNCHRONOUS_IGNORE_LEAVERS, false);
+         RpcOptionsBuilder builder = rpcManager.getRpcOptionsBuilder(ResponseMode.SYNCHRONOUS_IGNORE_LEAVERS, DeliverOrder.TOTAL);
          if (responseFilter != null) {
             builder.responseFilter(responseFilter);
          }
-         builder.totalOrder(true);
          Map<Address, Response> responseMap = rpcManager.invokeRemotely(recipients, prepareCommand, builder.build());
          if (responseFilter != null) {
             responseFilter.validate();
          }
          return responseMap;
       } else {
-         RpcOptionsBuilder builder = rpcManager.getRpcOptionsBuilder(ResponseMode.getAsyncResponseMode(cacheConfiguration),
-                                                                     false);
-         builder.totalOrder(true);
+         RpcOptionsBuilder builder = rpcManager.getRpcOptionsBuilder(ResponseMode.ASYNCHRONOUS,
+                                                                     DeliverOrder.TOTAL);
          return rpcManager.invokeRemotely(recipients, prepareCommand, builder.build());
       }
    }

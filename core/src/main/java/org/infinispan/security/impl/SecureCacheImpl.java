@@ -1,39 +1,45 @@
- package org.infinispan.security.impl;
+package org.infinispan.security.impl;
 
- import org.infinispan.AdvancedCache;
- import org.infinispan.atomic.Delta;
- import org.infinispan.batch.BatchContainer;
- import org.infinispan.commons.util.concurrent.NotifyingFuture;
- import org.infinispan.configuration.cache.Configuration;
- import org.infinispan.container.DataContainer;
- import org.infinispan.container.entries.CacheEntry;
- import org.infinispan.context.Flag;
- import org.infinispan.context.InvocationContextContainer;
- import org.infinispan.distribution.DistributionManager;
- import org.infinispan.eviction.EvictionManager;
- import org.infinispan.factories.ComponentRegistry;
- import org.infinispan.filter.KeyFilter;
- import org.infinispan.filter.KeyValueFilter;
- import org.infinispan.interceptors.base.CommandInterceptor;
- import org.infinispan.iteration.EntryIterable;
- import org.infinispan.lifecycle.ComponentStatus;
- import org.infinispan.manager.EmbeddedCacheManager;
- import org.infinispan.metadata.Metadata;
- import org.infinispan.filter.Converter;
- import org.infinispan.remoting.rpc.RpcManager;
- import org.infinispan.security.AuthorizationManager;
- import org.infinispan.security.AuthorizationPermission;
- import org.infinispan.security.SecureCache;
- import org.infinispan.stats.Stats;
- import org.infinispan.util.concurrent.locks.LockManager;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
- import javax.transaction.TransactionManager;
- import javax.transaction.xa.XAResource;
- import java.util.Collection;
- import java.util.List;
- import java.util.Map;
- import java.util.Set;
- import java.util.concurrent.TimeUnit;
+import javax.transaction.TransactionManager;
+import javax.transaction.xa.XAResource;
+
+import org.infinispan.AdvancedCache;
+import org.infinispan.CacheCollection;
+import org.infinispan.CacheSet;
+import org.infinispan.atomic.Delta;
+import org.infinispan.batch.BatchContainer;
+import org.infinispan.commons.util.concurrent.NotifyingFuture;
+import org.infinispan.configuration.cache.Configuration;
+import org.infinispan.container.DataContainer;
+import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.context.Flag;
+import org.infinispan.context.InvocationContextContainer;
+import org.infinispan.distribution.DistributionManager;
+import org.infinispan.eviction.EvictionManager;
+import org.infinispan.expiration.ExpirationManager;
+import org.infinispan.factories.ComponentRegistry;
+import org.infinispan.filter.KeyFilter;
+import org.infinispan.filter.KeyValueFilter;
+import org.infinispan.interceptors.base.CommandInterceptor;
+import org.infinispan.iteration.EntryIterable;
+import org.infinispan.lifecycle.ComponentStatus;
+import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.metadata.Metadata;
+import org.infinispan.notifications.cachelistener.filter.CacheEventConverter;
+import org.infinispan.notifications.cachelistener.filter.CacheEventFilter;
+import org.infinispan.partitionhandling.AvailabilityMode;
+import org.infinispan.remoting.rpc.RpcManager;
+import org.infinispan.security.AuthorizationManager;
+import org.infinispan.security.AuthorizationPermission;
+import org.infinispan.security.SecureCache;
+import org.infinispan.stats.Stats;
+import org.infinispan.util.concurrent.locks.LockManager;
 
 /**
  * SecureCacheImpl.
@@ -58,8 +64,8 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    }
 
    @Override
-   public <C> void addListener(Object listener, KeyValueFilter<? super K, ? super V> filter,
-                               Converter<? super K, ? super V, C> converter) {
+   public <C> void addListener(Object listener, CacheEventFilter<? super K, ? super V> filter,
+                               CacheEventConverter<? super K, ? super V, C> converter) {
       authzManager.checkPermission(AuthorizationPermission.LISTEN);
       delegate.addListener(listener, filter, converter);
    }
@@ -281,6 +287,12 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    }
 
    @Override
+   public ExpirationManager<K, V> getExpirationManager() {
+      authzManager.checkPermission(AuthorizationPermission.ADMIN);
+      return delegate.getExpirationManager();
+   }
+
+   @Override
    public V put(K key, V value, long lifespan, TimeUnit lifespanUnit, long maxIdleTime, TimeUnit maxIdleTimeUnit) {
       authzManager.checkPermission(AuthorizationPermission.WRITE);
       return delegate.put(key, value, lifespan, lifespanUnit, maxIdleTime, maxIdleTimeUnit);
@@ -288,6 +300,24 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
 
    @Override
    public void putForExternalRead(K key, V value) {
+      authzManager.checkPermission(AuthorizationPermission.WRITE);
+      delegate.putForExternalRead(key, value);
+   }
+
+   @Override
+   public void putForExternalRead(K key, V value, Metadata metadata) {
+      authzManager.checkPermission(AuthorizationPermission.WRITE);
+      delegate.putForExternalRead(key, value);
+   }
+   
+   @Override
+   public void putForExternalRead(K key, V value, long lifespan, TimeUnit unit) {
+      authzManager.checkPermission(AuthorizationPermission.WRITE);
+      delegate.putForExternalRead(key, value);
+   }
+   
+   @Override
+   public void putForExternalRead(K key, V value, long lifespan, TimeUnit lifespanUnit, long maxIdle, TimeUnit maxIdleUnit) {
       authzManager.checkPermission(AuthorizationPermission.WRITE);
       delegate.putForExternalRead(key, value);
    }
@@ -449,6 +479,23 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    }
 
    @Override
+   public AvailabilityMode getAvailability() {
+      return delegate.getAvailability();
+   }
+
+   @Override
+   public void setAvailability(AvailabilityMode availabilityMode) {
+      authzManager.checkPermission(AuthorizationPermission.ADMIN);
+      delegate.setAvailability(availabilityMode);
+   }
+
+   @Override
+   public CacheSet<CacheEntry<K, V>> cacheEntrySet() {
+      authzManager.checkPermission(AuthorizationPermission.BULK_READ);
+      return delegate.cacheEntrySet();
+   }
+
+   @Override
    public int size() {
       authzManager.checkPermission(AuthorizationPermission.BULK_READ);
       return delegate.size();
@@ -480,7 +527,7 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    }
 
    @Override
-   public Set<K> keySet() {
+   public CacheSet<K> keySet() {
       authzManager.checkPermission(AuthorizationPermission.BULK_READ);
       return delegate.keySet();
    }
@@ -489,6 +536,12 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    public V remove(Object key) {
       authzManager.checkPermission(AuthorizationPermission.WRITE);
       return delegate.remove(key);
+   }
+
+   @Override
+   public Map<K, V> getAll(Set<?> keys) {
+      authzManager.checkPermission(AuthorizationPermission.BULK_READ);
+      return delegate.getAll(keys);
    }
 
    @Override
@@ -527,7 +580,7 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    }
 
    @Override
-   public Collection<V> values() {
+   public CacheCollection<V> values() {
       authzManager.checkPermission(AuthorizationPermission.BULK_READ);
       return delegate.values();
    }
@@ -545,7 +598,7 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    }
 
    @Override
-   public Set<java.util.Map.Entry<K, V>> entrySet() {
+   public CacheSet<Entry<K, V>> entrySet() {
       authzManager.checkPermission(AuthorizationPermission.BULK_READ);
       return delegate.entrySet();
    }
@@ -560,6 +613,12 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    public V put(K key, V value, Metadata metadata) {
       authzManager.checkPermission(AuthorizationPermission.WRITE);
       return delegate.put(key, value, metadata);
+   }
+
+   @Override
+   public void putAll(Map<? extends K, ? extends V> m, Metadata metadata) {
+      authzManager.checkPermission(AuthorizationPermission.WRITE);
+      delegate.putAll(m, metadata);
    }
 
    @Override
@@ -599,9 +658,15 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    }
 
    @Override
-   public CacheEntry getCacheEntry(K key) {
+   public CacheEntry getCacheEntry(Object key) {
       authzManager.checkPermission(AuthorizationPermission.READ);
       return delegate.getCacheEntry(key);
+   }
+
+   @Override
+   public Map<K, CacheEntry<K, V>> getAllCacheEntries(Set<?> keys) {
+      authzManager.checkPermission(AuthorizationPermission.BULK_READ);
+      return delegate.getAllCacheEntries(keys);
    }
 
    @Override

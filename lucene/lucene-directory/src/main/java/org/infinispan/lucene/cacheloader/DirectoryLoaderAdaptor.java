@@ -6,6 +6,8 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
+import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.infinispan.commons.marshall.StreamingMarshaller;
 import org.infinispan.marshall.core.MarshalledEntryImpl;
@@ -17,8 +19,8 @@ import org.infinispan.lucene.FileMetadata;
 import org.infinispan.lucene.FileReadLockKey;
 import org.infinispan.lucene.IndexScopedKey;
 import org.infinispan.lucene.KeyVisitor;
+import org.infinispan.lucene.impl.FileListCacheValue;
 import org.infinispan.lucene.logging.Log;
-import org.infinispan.util.concurrent.ConcurrentHashSet;
 import org.infinispan.util.logging.LogFactory;
 
 /**
@@ -32,7 +34,7 @@ final class DirectoryLoaderAdaptor {
 
    private static final Log log = LogFactory.getLog(DirectoryLoaderAdaptor.class, Log.class);
 
-   private final InternalDirectoryContract directory;
+   private final Directory directory;
    private final LoadVisitor loadVisitor = new LoadVisitor();
    private final ContainsKeyVisitor containsKeyVisitor = new ContainsKeyVisitor();
    private final String indexName;
@@ -45,7 +47,7 @@ final class DirectoryLoaderAdaptor {
     * @param indexName the index name
     * @param autoChunkSize index segments might be large; we'll split them in chunks of this amount of bytes
     */
-   protected DirectoryLoaderAdaptor(final InternalDirectoryContract directory, String indexName, int autoChunkSize) {
+   protected DirectoryLoaderAdaptor(final Directory directory, String indexName, int autoChunkSize) {
       this.directory = directory;
       this.indexName = indexName;
       this.autoChunkSize = autoChunkSize;
@@ -57,7 +59,6 @@ final class DirectoryLoaderAdaptor {
     *
     * @param entriesCollector loaded entries are collected in this set
     * @param maxEntries to limit amount of entries loaded
-    * @throws PersistenceException
     */
    protected void loadAllEntries(final HashSet<MarshalledEntry> entriesCollector, final int maxEntries, StreamingMarshaller marshaller) {
       int existingElements = entriesCollector.size();
@@ -65,7 +66,7 @@ final class DirectoryLoaderAdaptor {
       if (toLoadElements <= 0) {
          return;
       }
-      HashSet<IndexScopedKey> keysCollector = new HashSet<IndexScopedKey>();
+      HashSet<IndexScopedKey> keysCollector = new HashSet<>();
       loadSomeKeys(keysCollector, Collections.EMPTY_SET, toLoadElements);
       for (IndexScopedKey key : keysCollector) {
          Object value = load(key);
@@ -80,8 +81,7 @@ final class DirectoryLoaderAdaptor {
     * Load some keys in the collector, excluding some and to a maximum number of collected (non-excluded) keys.
     * @param keysCollector the set where to add loaded keys to
     * @param keysToExclude which keys should not be loaded. Warning: can be null! Means all keys are to be returned
-    * @param maxElements
-    * @throws PersistenceException
+    * @param maxElements upper limit for collection
     */
    private void loadSomeKeys(final HashSet<IndexScopedKey> keysCollector, final Set<IndexScopedKey> keysToExclude, final int maxElements) {
       if (maxElements <= 0) {
@@ -141,11 +141,11 @@ final class DirectoryLoaderAdaptor {
     * which is too low to contain all bytes in a single array (overkill anyway).
     * In this case we ramp up and try splitting with larger chunkSize values.
     */
-   private static int figureChunksNumber(final String fileName, final long fileLength, int chunkSize) {
+   public static int figureChunksNumber(final String fileName, final long fileLength, int chunkSize) {
       if (chunkSize < 0) {
          throw new IllegalStateException("Overflow in rescaling chunkSize. File way too large?");
       }
-      final long numChunks = (fileLength / chunkSize);
+      final long numChunks = (fileLength % chunkSize == 0) ? (fileLength / chunkSize) : (fileLength / chunkSize) + 1;
       if (numChunks > Integer.MAX_VALUE) {
          log.rescalingChunksize(fileName, fileLength, chunkSize);
          chunkSize = 32 * chunkSize;
@@ -154,15 +154,6 @@ final class DirectoryLoaderAdaptor {
       else {
          return (int)numChunks;
       }
-   }
-
-   /**
-    * @param keysCollector the Set where to add loaded keys to
-    * @param keysToExclude Could be null!
-    * @throws org.infinispan.persistence.spi.PersistenceException
-    */
-   protected void loadAllKeys(final HashSet<IndexScopedKey> keysCollector, final Set<IndexScopedKey> keysToExclude) {
-      loadSomeKeys(keysCollector, keysToExclude, Integer.MAX_VALUE);
    }
 
    /**
@@ -192,13 +183,12 @@ final class DirectoryLoaderAdaptor {
    }
 
    /**
-    * @param key
+    * @param key {@link org.infinispan.lucene.IndexScopedKey}
     * @return true if the indexKey matches a loadable entry
     */
    protected boolean containsKey(final IndexScopedKey key) {
       try {
-         final Boolean returnValue = key.accept(containsKeyVisitor);
-         return returnValue.booleanValue();
+         return key.accept(containsKeyVisitor);
       }
       catch (Exception e) {
          throw log.exceptionInCacheLoader(e);
@@ -209,13 +199,9 @@ final class DirectoryLoaderAdaptor {
     * Load implementation for FileListCacheKey; must return a
     * ConcurrentHashSet containing the names of all files in this Directory.
     */
-   private Object loadIntern(final FileListCacheKey key) throws IOException {
+   private Object loadIntern() throws IOException {
       final String[] listAll = directory.listAll();
-      final ConcurrentHashSet<String> fileNames = new ConcurrentHashSet<String>();
-      for (String filename : listAll) {
-         fileNames.add(filename);
-      }
-      return fileNames;
+      return new FileListCacheValue(listAll);
    }
 
    /**
@@ -224,12 +210,10 @@ final class DirectoryLoaderAdaptor {
     */
    private FileMetadata loadIntern(final FileCacheKey key) throws IOException {
       final String fileName = key.getFileName();
-      final long fileModified = directory.fileModified(fileName);
       final long fileLength = directory.fileLength(fileName);
       // We're forcing the buffer size of a to-be-read segment to the full file size:
       final int bufferSize = (int) Math.min(fileLength, (long)autoChunkSize);
       final FileMetadata meta = new FileMetadata(bufferSize);
-      meta.setLastModified(fileModified);
       meta.setSize(fileLength);
       return meta;
    }
@@ -245,7 +229,7 @@ final class DirectoryLoaderAdaptor {
       int bufferSize = key.getBufferSize();
       final long seekTo = chunkId * bufferSize;
       final byte[] buffer;
-      final IndexInput input = directory.openInput(fileName);
+      final IndexInput input = directory.openInput(fileName, IOContext.READ);
       final long length = input.length();
       try {
          if (seekTo != 0) {
@@ -292,7 +276,7 @@ final class DirectoryLoaderAdaptor {
 
       @Override
       public Object visit(final FileListCacheKey fileListCacheKey) throws IOException {
-         return DirectoryLoaderAdaptor.this.loadIntern(fileListCacheKey);
+         return DirectoryLoaderAdaptor.this.loadIntern();
       }
 
       @Override

@@ -20,6 +20,7 @@ import org.infinispan.lucene.impl.DirectoryExtensions;
 import org.infinispan.lucene.readlocks.DistributedSegmentReadLocker;
 import org.infinispan.lucene.readlocks.SegmentReadLocker;
 import org.infinispan.lucene.testutils.RepeatableLongByteSequence;
+import org.infinispan.lucene.impl.InfinispanIndexOutput;
 import org.infinispan.manager.CacheContainer;
 import org.infinispan.test.TestingUtil;
 import org.testng.AssertJUnit;
@@ -34,7 +35,7 @@ import org.testng.annotations.Test;
  * @author Sanne Grinovero
  */
 @SuppressWarnings("unchecked")
-@Test(groups = "functional", testName = "lucene.InfinispanDirectoryIOTest", singleThreaded = true)
+@Test(groups = {"functional", "smoke"}, testName = "lucene.InfinispanDirectoryIOTest", singleThreaded = true)
 public class InfinispanDirectoryIOTest {
 
    /** The Test index name */
@@ -86,7 +87,7 @@ public class InfinispanDirectoryIOTest {
       //between 2 chunks
       final int[] pointers = {0, 635, REPEATABLE_BUFFER_SIZE, 135};
       for(int i=0; i < pointers.length; i++) {
-         io.seek(pointers[i]);
+         ((InfinispanIndexOutput)io).seek(pointers[i]);
          io.writeBytes(someTextAsBytes, someTextAsBytes.length);
       }
 
@@ -358,7 +359,7 @@ public class InfinispanDirectoryIOTest {
       file1.setSize(helloText.length());
       file2.setSize(worldText.length());
 
-      Set<String> s = new HashSet<String>();
+      Set<String> s = new HashSet<>();
       s.add("Hello.txt");
       s.add("World.txt");
       Set other = new HashSet(Arrays.asList(dir.listAll()));
@@ -492,7 +493,7 @@ public class InfinispanDirectoryIOTest {
 
       String testText = "This is some rubbish again that will span more than one chunk - one hopes.  Who knows, maybe even three or four chunks.";
       io = dir.createOutput("MyNewFile.txt", IOContext.DEFAULT);
-      io.seek(0);
+      ((InfinispanIndexOutput)io).seek(0);
       io.writeBytes(testText.getBytes(), 0, testText.length());
       io.close();
       // now compare.

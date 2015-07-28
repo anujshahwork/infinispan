@@ -1,13 +1,5 @@
 package org.infinispan.commons.util;
 
-import org.infinispan.commons.CacheConfigurationException;
-import org.infinispan.commons.CacheException;
-import org.infinispan.commons.hash.Hash;
-import org.infinispan.commons.logging.Log;
-import org.infinispan.commons.logging.LogFactory;
-import org.infinispan.commons.marshall.Marshaller;
-
-import javax.naming.Context;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
@@ -33,10 +25,20 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+
+import javax.naming.Context;
+import javax.security.auth.Subject;
+
+import org.infinispan.commons.CacheConfigurationException;
+import org.infinispan.commons.CacheException;
+import org.infinispan.commons.hash.Hash;
+import org.infinispan.commons.logging.Log;
+import org.infinispan.commons.logging.LogFactory;
+import org.infinispan.commons.marshall.Marshaller;
 
 /**
  * General utility methods used throughout the Infinispan code base.
@@ -48,6 +50,7 @@ import java.util.concurrent.TimeUnit;
 public final class Util {
 
    private static final boolean IS_ARRAYS_DEBUG = Boolean.getBoolean("infinispan.arrays.debug");
+   private static final boolean IS_OSGI_CONTEXT;
 
    public static final Object[] EMPTY_OBJECT_ARRAY = new Object[0];
    public static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
@@ -59,6 +62,16 @@ public final class Util {
     * for different java vendors.
     */
    private static final String javaVendor = SecurityActions.getProperty("java.vendor", "");
+
+   static {
+      boolean osgi = false;
+      try {
+         osgi = Util.class.getClassLoader() instanceof org.osgi.framework.BundleReference;
+      } catch (NoClassDefFoundError ex) {
+         // Ignore
+      }
+      IS_OSGI_CONTEXT = osgi;
+   }
 
    /**
     * <p>
@@ -91,28 +104,28 @@ public final class Util {
 
    /**
     * Tries to determine if the code is running in an OSGi context.
-    * 
+    *
     * @return true if an OSGi context is detected
     */
    public static boolean isOSGiContext() {
-      ClassLoader cl = Util.class.getClassLoader();
-      boolean result = false;
-      try {
-         result = cl instanceof org.osgi.framework.BundleReference;
-      } catch (NoClassDefFoundError ex) {
-         // OSGi bundle not on the classpath. Ignore.
-      }
-      return result;
+      return IS_OSGI_CONTEXT;
    }
 
    public static ClassLoader[] getClassLoaders(ClassLoader appClassLoader) {
-      return new ClassLoader[] {
-            appClassLoader,  // User defined classes
-            OsgiClassLoader.getInstance(), // OSGi bundle context needs to be on top of TCCL, system CL, etc.
-            Util.class.getClassLoader(), // Infinispan classes (not always on TCCL [modular env])
-            ClassLoader.getSystemClassLoader(), // Used when load time instrumentation is in effect
-            Thread.currentThread().getContextClassLoader() //Used by jboss-as stuff
-            };
+      if (isOSGiContext()) {
+         return new ClassLoader[] { appClassLoader,   // User defined classes
+               OsgiClassLoader.getInstance(),         // OSGi bundle context needs to be on top of TCCL, system CL, etc.
+               Util.class.getClassLoader(),           // Infinispan classes (not always on TCCL [modular env])
+               ClassLoader.getSystemClassLoader(),    // Used when load time instrumentation is in effect
+               Thread.currentThread().getContextClassLoader() //Used by jboss-as stuff
+         };
+      } else {
+         return new ClassLoader[] { appClassLoader,   // User defined classes
+               Util.class.getClassLoader(),           // Infinispan classes (not always on TCCL [modular env])
+               ClassLoader.getSystemClassLoader(),    // Used when load time instrumentation is in effect
+               Thread.currentThread().getContextClassLoader() //Used by jboss-as stuff
+         };
+      }
    }
 
    /**
@@ -157,6 +170,22 @@ public final class Util {
          }
          else
             throw new IllegalStateException();
+   }
+
+   public static InputStream getResourceAsStream(String resourcePath, ClassLoader userClassLoader) {
+      if (resourcePath.startsWith("/")) {
+         resourcePath = resourcePath.substring(1);
+      }
+      InputStream is = null;
+      for (ClassLoader cl : getClassLoaders(userClassLoader)) {
+         if (cl != null) {
+            is = cl.getResourceAsStream(resourcePath);
+            if (is != null) {
+               break;
+            }
+         }
+      }
+      return is;
    }
 
    private static Method getFactoryMethod(Class<?> c) {
@@ -701,7 +730,7 @@ public final class Util {
     * @return the size of each segment
     */
    public static int getSegmentSize(int numSegments) {
-      return (int)Math.ceil((float)Integer.MAX_VALUE / numSegments);
+      return (int)Math.ceil((double)(1L << 31) / numSegments);
    }
 
    public static boolean isIBMJavaVendor() {
@@ -750,5 +779,33 @@ public final class Util {
 
       return hashCode;
    }
+
+   /**
+    *
+    * Prints {@link Subject}'s principals as a one-liner
+    * (as opposed to default Subject's <code>toString()</code> method, which prints every principal on separate line).
+    *
+    */
+   public static String prettyPrintSubject(Subject subject) {
+      return (subject == null) ? "null" : "Subject with principal(s): " + toStr(subject.getPrincipals());
+   }
+
+   /**
+    * Concatenates an arbitrary number of arrays returning a new array containing all elements
+    */
+   @SafeVarargs
+   public static <T> T[] arrayConcat(T[] first, T[]... rest) {
+      int totalLength = first.length;
+      for (T[] array : rest) {
+        totalLength += array.length;
+      }
+      T[] result = Arrays.copyOf(first, totalLength);
+      int offset = first.length;
+      for (T[] array : rest) {
+        System.arraycopy(array, 0, result, offset, array.length);
+        offset += array.length;
+      }
+      return result;
+    }
 
 }

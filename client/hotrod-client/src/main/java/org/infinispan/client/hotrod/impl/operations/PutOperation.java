@@ -1,5 +1,6 @@
 package org.infinispan.client.hotrod.impl.operations;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import net.jcip.annotations.Immutable;
@@ -21,16 +22,16 @@ public class PutOperation extends AbstractKeyValueOperation<byte[]> {
 
    public PutOperation(Codec codec, TransportFactory transportFactory,
                        byte[] key, byte[] cacheName, AtomicInteger topologyId,
-                       Flag[] flags, byte[] value, int lifespan, int maxIdle) {
-      super(codec, transportFactory, key, cacheName, topologyId, flags, value, lifespan, maxIdle);
+                       Flag[] flags, byte[] value, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit) {
+      super(codec, transportFactory, key, cacheName, topologyId, flags, value, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit);
    }
 
    @Override
    protected byte[] executeOperation(Transport transport) {
       short status = sendPutOperation(transport, PUT_REQUEST, PUT_RESPONSE);
-      if (status != NO_ERROR_STATUS) {
+      if (status != NO_ERROR_STATUS && status != SUCCESS_WITH_PREVIOUS) {
          throw new InvalidResponseException("Unexpected response status: " + Integer.toHexString(status));
       }
-      return returnPossiblePrevValue(transport);
+      return returnPossiblePrevValue(transport, status);
    }
 }

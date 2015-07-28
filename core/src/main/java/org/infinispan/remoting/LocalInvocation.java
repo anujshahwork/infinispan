@@ -41,12 +41,14 @@ public class LocalInvocation implements Callable<Response> {
          commandsFactory.initializeReplicableCommand(command, false);
          command.setOrigin(self);
          return responseGenerator.getResponse(command, command.perform(null));
+      } catch (Exception e) {
+         throw e;
       } catch (Throwable throwable) {
-         return new ExceptionResponse(new CacheException("Problems invoking command.", throwable));
+         throw new CacheException("Problems invoking command.", throwable);
       }
    }
 
-   public static LocalInvocation newInstanceFromCache(Cache<Object, Object> cache, CacheRpcCommand command) {
+   public static LocalInvocation newInstanceFromCache(Cache<?, ?> cache, CacheRpcCommand command) {
       ComponentRegistry registry = cache.getAdvancedCache().getComponentRegistry();
       ResponseGenerator responseGenerator = registry.getResponseGenerator();
       CommandsFactory commandsFactory = registry.getCommandsFactory();

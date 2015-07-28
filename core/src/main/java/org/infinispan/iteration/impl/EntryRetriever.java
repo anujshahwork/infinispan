@@ -1,13 +1,15 @@
 package org.infinispan.iteration.impl;
 
+import org.infinispan.Cache;
+import org.infinispan.commons.CacheException;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.context.Flag;
 import org.infinispan.filter.Converter;
 import org.infinispan.filter.KeyValueFilter;
 import org.infinispan.remoting.transport.Address;
 
 import java.util.Collection;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -16,6 +18,9 @@ import java.util.UUID;
  *
  * @author wburns
  * @since 7.0
+ * @deprecated Please use {@link Collection#stream()} method on either {@link Cache#entrySet()},
+ * {@link Cache#keySet()} or {@link Cache#values()}.  The {@link org.infinispan.filter.CacheFilters} can be used to
+ * bridge between filter/converters and proper stream types
  */
 public interface EntryRetriever<K, V> {
    /**
@@ -23,13 +28,15 @@ public interface EntryRetriever<K, V> {
     * @param identifier The unique identifier of the iteration request
     * @param origin The node that sent the iteration request
     * @param segments The segments this node wants
+    * @param keysToFilter The keys to filter out (can be {@code null})
     * @param filter The filter to be applied to determine if a value should be used
     * @param converter The converter to run on the values retrieved before returning
     * @param <C> The resulting type of the Converter
     */
-   public <C> void startRetrievingValues(UUID identifier, Address origin, Set<Integer> segments,
+   public <C> void startRetrievingValues(UUID identifier, Address origin, Set<Integer> segments, Set<K> keysToFilter,
                                         KeyValueFilter<? super K, ? super V> filter,
-                                        Converter<? super K, ? super V, C> converter);
+                                        Converter<? super K, ? super V, C> converter,
+                                        Set<Flag> flagss);
 
    /**
     * This method is invoked on the local node who started the iteration process for each batch of values.  When
@@ -40,10 +47,11 @@ public interface EntryRetriever<K, V> {
     * @param completedSegments Which segments have been completed
     * @param inDoubtSegments Which segments are now in doubt due to a rehash
     * @param entries The entries retrieved
+    * @param e If an exception handled while processing the data on the remote node
     * @param <C> The type of entries values sent back
     */
    public <C> void receiveResponse(UUID identifier, Address origin, Set<Integer> completedSegments,
-                                   Set<Integer> inDoubtSegments, Collection<CacheEntry<K, C>> entries);
+                                   Set<Integer> inDoubtSegments, Collection<CacheEntry<K, C>> entries, CacheException e);
 
    /**
     * This is invoked locally on the node that requested the iteration process.  This method will return immediately
@@ -51,6 +59,9 @@ public interface EntryRetriever<K, V> {
     * @param filter An optional filter that will be ran on each key/value to determine if it should be returned.
     * @param converter An optional converter that will be ran on each key/value that will be returned to transform
     *                  the value to a different value if desired
+    * @param flags An optional set of flags to modify behavior.  For example {@link Flag#CACHE_MODE_LOCAL} will prevent
+    *              the retriever from retrieving remote values and {@link Flag#SKIP_CACHE_LOAD} will prevent the
+    *              retriever from getting values from the configured loader if present.
     * @param listener An optional segment listener that can be used to tell the invoker when segments and the iteration
     *                 process is completed
     * @param <C> The type of the resulting values from the converter
@@ -58,7 +69,7 @@ public interface EntryRetriever<K, V> {
     */
    public <C> CloseableIterator<CacheEntry<K, C>> retrieveEntries(KeyValueFilter<? super K, ? super V> filter,
                                                        Converter<? super K, ? super V, ? extends C> converter,
-                                                       SegmentListener listener);
+                                                       Set<Flag> flags, SegmentListener listener);
 
    /**
     * This interface describes the call back methods that are invoked when an iteration process completes segments

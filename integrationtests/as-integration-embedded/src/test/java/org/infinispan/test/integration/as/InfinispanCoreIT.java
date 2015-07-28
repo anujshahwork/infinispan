@@ -2,6 +2,7 @@ package org.infinispan.test.integration.as;
 
 import org.infinispan.Cache;
 import org.infinispan.Version;
+import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.manager.DefaultCacheManager;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -35,13 +36,16 @@ public class InfinispanCoreIT {
    }
 
    private static Asset manifest() {
-      String manifest = Descriptors.create(ManifestDescriptor.class).attribute("Dependencies", "org.infinispan:" + Version.MODULE_SLOT + " services").exportAsString();
+      String manifest = Descriptors.create(ManifestDescriptor.class).attribute("Dependencies", "org.infinispan:" + Version.getModuleSlot() + " services").exportAsString();
       return new StringAsset(manifest);
    }
 
    @Test
    public void testCacheManager() {
-      EmbeddedCacheManager cm = new DefaultCacheManager();
+      GlobalConfigurationBuilder gcb = new GlobalConfigurationBuilder();
+      gcb.globalJmxStatistics().allowDuplicateDomains(true);
+
+      EmbeddedCacheManager cm = new DefaultCacheManager(gcb.build());
       Cache<String, String> cache = cm.getCache();
       cache.put("a", "a");
       assertEquals("a", cache.get("a"));
