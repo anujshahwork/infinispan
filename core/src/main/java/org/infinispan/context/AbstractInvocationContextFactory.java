@@ -27,21 +27,19 @@ public abstract class AbstractInvocationContextFactory implements InvocationCont
    }
 
    @Override
-   public final InvocationContext createRemoteInvocationContextForCommand(
+   public InvocationContext createRemoteInvocationContextForCommand(
          VisitableCommand cacheCommand, Address origin) {
-      return cacheCommand instanceof ClearCommand ? createClearInvocationContext(false, origin) :
+      return cacheCommand instanceof ClearCommand ? createClearInvocationContext(origin) :
             createRemoteInvocationContext(origin);
    }
 
    @Override
    public final InvocationContext createClearNonTxInvocationContext() {
-      return createClearInvocationContext(true, null);
+      return createClearInvocationContext(null);
    }
 
-   private ClearInvocationContext createClearInvocationContext(boolean local, Address origin) {
-      ClearInvocationContext context = new ClearInvocationContext();
-      context.setOriginLocal(local);
-      context.setOrigin(origin);
+   private ClearInvocationContext createClearInvocationContext(Address origin) {
+      ClearInvocationContext context = new ClearInvocationContext(origin);
       return context;
    }
 }
