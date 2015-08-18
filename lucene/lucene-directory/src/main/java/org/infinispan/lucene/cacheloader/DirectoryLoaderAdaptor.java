@@ -10,10 +10,9 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IndexInput;
 import org.infinispan.commons.marshall.StreamingMarshaller;
-import org.infinispan.marshall.core.MarshalledEntryImpl;
-import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.lucene.ChunkCacheKey;
 import org.infinispan.lucene.FileCacheKey;
+import org.infinispan.lucene.FileDeleteMarkerKey;
 import org.infinispan.lucene.FileListCacheKey;
 import org.infinispan.lucene.FileMetadata;
 import org.infinispan.lucene.FileReadLockKey;
@@ -21,6 +20,8 @@ import org.infinispan.lucene.IndexScopedKey;
 import org.infinispan.lucene.KeyVisitor;
 import org.infinispan.lucene.impl.FileListCacheValue;
 import org.infinispan.lucene.logging.Log;
+import org.infinispan.marshall.core.MarshalledEntry;
+import org.infinispan.marshall.core.MarshalledEntryImpl;
 import org.infinispan.util.logging.LogFactory;
 
 /**
@@ -294,6 +295,12 @@ final class DirectoryLoaderAdaptor {
          //ReadLocks should not leak to the actual storage
          return null;
       }
+
+      @Override
+      public Object visit(FileDeleteMarkerKey fileDeleteMarkerKey) throws Exception {
+         //Delete markers should not leak to the actual storage
+         return null;
+      }
    }
 
    /**
@@ -322,6 +329,12 @@ final class DirectoryLoaderAdaptor {
       public Boolean visit(final FileReadLockKey fileReadLockKey) {
          //ReadLocks should not leak to the actual storage
          return Boolean.FALSE;
+      }
+
+      @Override
+      public Boolean visit(FileDeleteMarkerKey fileDeleteMarkerKey) throws Exception {
+        //Delete markers should not leak to the actual storage
+        return Boolean.FALSE;
       }
    }
 

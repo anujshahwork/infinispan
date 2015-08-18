@@ -5,6 +5,7 @@ import org.infinispan.Cache;
 import org.infinispan.context.Flag;
 import org.infinispan.lucene.ChunkCacheKey;
 import org.infinispan.lucene.FileCacheKey;
+import org.infinispan.lucene.FileDeleteMarkerKey;
 import org.infinispan.lucene.FileMetadata;
 import org.infinispan.lucene.FileReadLockKey;
 import org.infinispan.util.logging.Log;
@@ -67,7 +68,7 @@ public class DistributedSegmentReadLocker implements SegmentReadLocker {
     * @see org.apache.lucene.store.Directory#deleteFile(String)
     */
    @Override
-   public void deleteOrReleaseReadLock(final String filename) {
+   public void releaseReadLock(final String filename) {
       if (isMultiChunked(filename)) {
          int newValue = 0;
          FileReadLockKey readLockKey = new FileReadLockKey(indexName, filename);
@@ -173,7 +174,7 @@ public class DistributedSegmentReadLocker implements SegmentReadLocker {
     * The {@link org.apache.lucene.store.Directory#deleteFile(String)} is not deleting the elements from the cache
     * but instead flagging the file as deletable.
     * This method will really remove the elements from the cache; should be invoked only
-    * by {@link #deleteOrReleaseReadLock(String)} after having verified that there
+    * by {@link #releaseReadLock(String)} after having verified that there
     * are no users left in need to read these chunks.
     *
     * @param indexName the index name to delete the file from
@@ -188,6 +189,12 @@ public class DistributedSegmentReadLocker implements SegmentReadLocker {
       final boolean trace = log.isTraceEnabled();
       final FileCacheKey key = new FileCacheKey(indexName, fileName);
       if (trace) log.tracef("deleting metadata: %s", key);
+
+      if (locksCache.remove(new FileDeleteMarkerKey(indexName, fileName)) == null) {
+        log.warn("Attempt made to delete file [" + fileName + "] from index [" + indexName + "] but no delete marker was present.");
+        return;
+      }
+
       final FileMetadata file = (FileMetadata) metadataCache.remove(key);
       if (file != null) { //during optimization of index a same file could be deleted twice, so you could see a null here
          final int bufferSize = file.getBufferSize();
@@ -221,4 +228,18 @@ public class DistributedSegmentReadLocker implements SegmentReadLocker {
          throw new IllegalArgumentException("DistributedSegmentReadLocker is not reliable when using a cache with eviction enabled, disable eviction on this cache instance");
    }
 
+
+   /**
+    * Adds a value to the locks cache to indicate that the file is in need of deleting.
+    * An actual file delete may not occur until all read locks are released.
+    * @see InfinispanDirectory#deleteFile(String)
+    */
+   @Override
+   public void markForDeletion(String fileName) {
+     FileDeleteMarkerKey key = new FileDeleteMarkerKey(indexName, fileName);
+     if (log.isTraceEnabled()) log.tracef("Marking for deletion: %s", key);
+
+     locksCache.put(key, 1);
+     releaseReadLock(fileName);
+   }
 }

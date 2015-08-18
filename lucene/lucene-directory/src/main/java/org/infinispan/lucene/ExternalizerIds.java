@@ -57,4 +57,8 @@ public interface ExternalizerIds {
     */
    static final Integer FILE_LIST_DELTA_DEL = 1308;
 
+   /**
+    * @see org.infinispan.lucene.FileDeleteMarkerKey.Externalizer
+    */
+   static final Integer FILE_DELETE_MARKER_KEY = 1309;
 }

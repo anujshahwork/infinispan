@@ -1,7 +1,8 @@
 package org.infinispan.lucene.readlocks;
 
-import org.infinispan.Cache;
 import java.util.HashMap;
+
+import org.infinispan.Cache;
 
 /**
  * LocalLockMergingSegmentReadLocker decorates the {@link DistributedSegmentReadLocker} to minimize
@@ -73,7 +74,7 @@ public class LocalLockMergingSegmentReadLocker implements SegmentReadLocker {
     * {@inheritDoc}
     */
    @Override
-   public synchronized void deleteOrReleaseReadLock(String name) {
+   public synchronized void releaseReadLock(String name) {
       getLocalLockByName(name).release();
    }
 
@@ -112,9 +113,14 @@ public class LocalLockMergingSegmentReadLocker implements SegmentReadLocker {
          value--;
          if (value <= 0) {
             localLocks.remove(name);
-            delegate.deleteOrReleaseReadLock(name);
+            delegate.releaseReadLock(name);
          }
       }
    }
 
+
+   @Override
+   public void markForDeletion(String fileName) {
+     delegate.markForDeletion(fileName);
+   }
 }

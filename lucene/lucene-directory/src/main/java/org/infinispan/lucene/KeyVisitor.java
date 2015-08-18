@@ -18,4 +18,6 @@ public interface KeyVisitor<T> {
 
    T visit(FileReadLockKey fileReadLockKey) throws Exception;
 
+   T visit(FileDeleteMarkerKey fileDeleteMarkerKey) throws Exception;
+
 }

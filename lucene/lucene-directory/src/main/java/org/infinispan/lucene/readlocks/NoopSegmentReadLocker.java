@@ -22,8 +22,15 @@ public class NoopSegmentReadLocker implements SegmentReadLocker {
     * doesn't do anything
     */
    @Override
-   public void deleteOrReleaseReadLock(String filename) {
+   public void releaseReadLock(String filename) {
       return;
    }
 
+   /**
+    * doesn't do anything
+    */
+   @Override
+   public void markForDeletion(String fileName) {
+      return;
+   }
 }

@@ -13,8 +13,8 @@ import org.infinispan.lucene.FileMetadata;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.test.SingleCacheManagerTest;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
-import org.testng.annotations.Test;
 import org.testng.AssertJUnit;
+import org.testng.annotations.Test;
 
 /**
  * Stress test for {@link org.infinispan.lucene.readlocks.LocalLockMergingSegmentReadLocker}. See also ISPN-4497 for an
@@ -57,7 +57,7 @@ public class LocalLockStressTest extends SingleCacheManagerTest {
 
                   locker.acquireReadLock("fileName");
                   Thread.sleep(2);
-                  locker.deleteOrReleaseReadLock("fileName");
+                  locker.releaseReadLock("fileName");
 
                   // Take a break every now and a again to try and avoid the same LocalReadLock being used constantly
                   if (counter++ % 900 == 0) {

@@ -62,7 +62,7 @@ class DirectoryImplementor {
 
     void deleteFile(final String name) {
        fileOps.deleteFileName(name);
-       readLocks.deleteOrReleaseReadLock(name);
+       readLocks.markForDeletion(name);
        if (log.isDebugEnabled()) {
           log.debugf("Removed file: %s from index: %s", name, indexName);
        }
@@ -91,7 +91,7 @@ class DirectoryImplementor {
        fileOps.removeAndAdd(from, to);
 
        // now trigger deletion of old file chunks:
-       readLocks.deleteOrReleaseReadLock(from);
+       readLocks.markForDeletion(from);
        if (log.isTraceEnabled()) {
           log.tracef("Renamed file from: %s to: %s in index %s", from, to, indexName);
        }

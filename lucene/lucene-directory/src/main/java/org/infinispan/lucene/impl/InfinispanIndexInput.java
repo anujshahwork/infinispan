@@ -97,7 +97,7 @@ public class InfinispanIndexInput extends IndexInput {
       currentLoadedChunk = -1;
       buffer = null;
       if (isClone) return;
-      readLocks.deleteOrReleaseReadLock(filename);
+      readLocks.releaseReadLock(filename);
       if (trace) {
          log.tracef("Closed IndexInput for file:%s in index: %s", filename, fileKey.getIndexName());
       }
